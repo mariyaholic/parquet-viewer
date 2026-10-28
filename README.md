@@ -46,7 +46,7 @@ with MetaQuotes; MetaTrader 5 and MT5 are trademarks of MetaQuotes Ltd.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the product architecture,
 [docs/PROTOCOL.md](docs/PROTOCOL.md) for the worker protocol and
-[TESTING.md](TESTING.md) for verification.
+[docs/TESTING.md](docs/TESTING.md) for verification.
 
 ## Build and test
 
@@ -64,7 +64,11 @@ behind `#[cfg(windows)]`; on Linux it can be type-checked but not tested:
 cargo check -p parquet-preview-windows --features win-check
 ```
 
-A real Windows build needs the MSVC Rust toolchain. See [TESTING.md](TESTING.md)
+For native Windows releases run `scripts/build-windows.ps1`; on Linux run
+`scripts/build-windows.sh` with the Windows GNU target and MinGW installed.
+Both produce `dist/` binaries and SHA256SUMS; the scripts use the last commit
+timestamp and remap source paths, but reproducibility also depends on identical
+toolchains and dependency inputs. See [docs/TESTING.md](docs/TESTING.md)
 for everything that still requires real Windows.
 
 ## Headless use
@@ -121,6 +125,14 @@ warn. See [installer/README.md](installer/README.md).
 
 The handler and worker must be version-matched and live in the same directory:
 `parquet_preview_windows.dll` and `parquet-preview-worker.exe`.
+
+## Privacy and offline behavior
+
+Files and optional settings stay local. The application does not access the network or send telemetry.
+
+## Licence
+
+Apache-2.0; see [LICENSE](LICENSE), [NOTICE](NOTICE) and [THIRD_PARTY.md](THIRD_PARTY.md).
 
 ## Known limitations
 

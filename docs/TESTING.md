@@ -17,33 +17,6 @@ cargo check -p parquet-preview-windows --features win-check
 The Linux `win-check` command type-checks the raw Win32/COM surface. It does not
 link Windows libraries and does not prove runtime behaviour.
 
-## Results on 2026-10-28 (Linux x86_64, Rust 1.85.1)
-
-```text
-cargo build --workspace
-  Finished `dev` profile ... (exit 0)
-
-cargo test --workspace
-  21 result lines, 128 tests passed, 0 failed, 0 ignored (exit 0)
-
-cargo check -p parquet-preview-windows --features win-check
-  Finished `dev` profile ... (exit 0)
-
-sha256sum -c tests/fixtures/SHA256SUMS
-  18 files OK
-```
-
-Smoke checks:
-
-```text
-cargo run -p parquet-preview-cli -- --about
-cargo run -p parquet-preview-cli -- tests/fixtures/multi_row_groups.parquet --rows 3 --scan
-cargo run -p parquet-preview-cli -- tests/fixtures/trades.parquet --rows 1 --json
-```
-
-The test count is the sum of library, integration and doc-test result lines; the
-worker/client process test spawns the real `parquet-preview-worker` binary.
-
 ## Automated coverage
 
 | Area | Tests |
@@ -110,8 +83,22 @@ files repeatedly.
 
 ## Known test limitations
 
-- The Windows COM/Win32 code is type-checked, not executed, on Linux.
+- Windows cross-builds do not execute COM/Win32 behavior.
 - Timing tests (`max_scan_millis = 0`) are conservative and may complete on very
   small files; they only assert that an incomplete scan never claims exactness.
 - Golden output includes the pinned Arrow/Parquet version from the committed
   fixture metadata.
+
+## Cross-compilation and release artifacts
+
+With the Windows GNU Rust target and MinGW already installed:
+
+```text
+CARGO_NET_OFFLINE=true cargo clippy --offline --all-targets --target x86_64-pc-windows-gnu
+CARGO_NET_OFFLINE=true cargo test --offline --no-run --target x86_64-pc-windows-gnu
+scripts/build-windows.sh
+```
+
+Cross-compiling test executables does not run them. The registration cleanup,
+COM apartment behavior and Explorer integration still require Windows runtime
+verification; the native release script also requires a Windows run.

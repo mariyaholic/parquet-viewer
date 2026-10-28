@@ -4,7 +4,7 @@ These items are deliberately out of the v1 scope described in
 `docs/ARCHITECTURE.md`. None of them is implemented yet.
 
 - Real Windows verification of COM activation, Explorer stream behaviour,
-  registration conflicts, job assignment and cancellation; see TESTING.md.
+  registration conflicts, job assignment and cancellation; see docs/TESTING.md.
 - Code signing (SignPath Foundation or another approved route) and release
   SHA256SUMS. Releases are "not code-signed yet".
 - MSIX/Store packaging and its preview-handler registration support, including a

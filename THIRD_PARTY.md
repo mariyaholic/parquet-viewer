@@ -27,6 +27,7 @@ separately and is permissive.
 | --- | --- | --- |
 | parquet 58.4.1 | Apache-2.0 | Read-only Parquet decoding |
 | arrow-array 58.4.1 | Apache-2.0 AND MIT | Arrow sample/scan arrays |
+| arrow-buffer 58.4.1 | Apache-2.0 | Fixture generation buffers |
 | arrow-schema 58.4.1 | Apache-2.0 | Arrow schema/data types |
 | serde 1.0.229 | MIT OR Apache-2.0 | Report/settings serialization |
 | serde_json 1.0.154 | MIT OR Apache-2.0 | JSON protocol and settings |
