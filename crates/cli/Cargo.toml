@@ -1,0 +1,18 @@
+[package]
+name = "parquet-preview-cli"
+description = "Headless inspection tool used to verify the Parquet preview core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "parquet-preview-cli"
+path = "src/main.rs"
+
+[dependencies]
+parquet-preview-core = { path = "../core" }
+serde_json.workspace = true
