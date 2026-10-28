@@ -105,13 +105,13 @@ static PREVIEW_VTBL: IPreviewHandlerVtbl = IPreviewHandlerVtbl {
     query_interface: preview_qi,
     add_ref: preview_add_ref,
     release: preview_release,
-    set_window: set_window,
-    set_rect: set_rect,
-    do_preview: do_preview,
-    unload: unload,
-    set_focus: set_focus,
-    query_focus: query_focus,
-    translate_accelerator: translate_accelerator,
+    set_window,
+    set_rect,
+    do_preview,
+    unload,
+    set_focus,
+    query_focus,
+    translate_accelerator,
 };
 
 static VISUALS_VTBL: IPreviewHandlerVisualsVtbl = IPreviewHandlerVisualsVtbl {
