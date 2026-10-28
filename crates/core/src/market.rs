@@ -14,7 +14,7 @@ use parquet::arrow::arrow_reader::{ParquetRecordBatchReaderBuilder, RowSelection
 use parquet::arrow::ProjectionMask;
 use serde::{Deserialize, Serialize};
 
-use crate::baseline::{ReferenceBaseline, BaselineSpec};
+use crate::baseline::{BaselineSpec, ReferenceBaseline};
 use crate::date_bounds::DateKind;
 use crate::display::escape_text;
 use crate::sample::format_float;
@@ -316,9 +316,8 @@ impl Session {
             let rows = u64::try_from(group.num_rows()).unwrap_or(0);
             let group_end = start_row.saturating_add(rows);
             if group_end > 0 && start_row < rows_wanted as u64 {
-                needed_bytes = needed_bytes.saturating_add(
-                    u64::try_from(group.compressed_size().max(0)).unwrap_or(0),
-                );
+                needed_bytes = needed_bytes
+                    .saturating_add(u64::try_from(group.compressed_size().max(0)).unwrap_or(0));
                 covered_groups += 1;
             }
             start_row = group_end;
@@ -342,9 +341,7 @@ impl Session {
         } else {
             None
         };
-        let mut reader = builder
-            .with_projection(projection)
-            .with_batch_size(1024);
+        let mut reader = builder.with_projection(projection).with_batch_size(1024);
         if let Some(selection) = selection {
             reader = reader.with_row_selection(selection);
         }
@@ -418,12 +415,8 @@ impl Session {
                     limits.max_baseline_bytes,
                 ) {
                     Ok(reference) => {
-                        let comparison = compare_baseline(
-                            &rows,
-                            &time_kind,
-                            &reference,
-                            &profile.thresholds,
-                        );
+                        let comparison =
+                            compare_baseline(&rows, &time_kind, &reference, &profile.thresholds);
                         checks.push(DiagnosticCheck {
                             id: "baseline".to_string(),
                             title: "Reference-price baseline".to_string(),
@@ -527,10 +520,7 @@ fn extract_rows(
     ) else {
         return;
     };
-    let spread_index = profile
-        .spread_field
-        .as_deref()
-        .and_then(|name| find(name));
+    let spread_index = profile.spread_field.as_deref().and_then(|name| find(name));
     let time_array = batch.column(time_index);
     let open_array = batch.column(open_index);
     let high_array = batch.column(high_index);
@@ -749,15 +739,23 @@ fn time_range(rows: &[Row], kind: &DateKind) -> TimeRange {
         }
     }
     TimeRange {
-        min: min.map(|v| kind.format(v)).unwrap_or_else(|| "n/a".to_string()),
-        max: max.map(|v| kind.format(v)).unwrap_or_else(|| "n/a".to_string()),
+        min: min
+            .map(|v| kind.format(v))
+            .unwrap_or_else(|| "n/a".to_string()),
+        max: max
+            .map(|v| kind.format(v))
+            .unwrap_or_else(|| "n/a".to_string()),
         null_rows,
         non_monotonic_steps: non_monotonic,
         duplicate_steps: duplicates,
     }
 }
 
-fn spread_check(rows: &[Row], profile: &MarketProfile, thresholds: &MarketThresholds) -> DiagnosticCheck {
+fn spread_check(
+    rows: &[Row],
+    profile: &MarketProfile,
+    thresholds: &MarketThresholds,
+) -> DiagnosticCheck {
     let mut distinct = BTreeSet::new();
     let mut values = 0usize;
     let mut non_positive = 0usize;
@@ -794,7 +792,10 @@ fn spread_check(rows: &[Row], profile: &MarketProfile, thresholds: &MarketThresh
         thresholds.constant_spread_max_distinct.to_string(),
     );
     let (status, summary) = if values == 0 {
-        (CheckStatus::Unavailable, "no spread values available".to_string())
+        (
+            CheckStatus::Unavailable,
+            "no spread values available".to_string(),
+        )
     } else if distinct.len() <= thresholds.constant_spread_max_distinct {
         (
             CheckStatus::Warning,
@@ -812,7 +813,10 @@ fn spread_check(rows: &[Row], profile: &MarketProfile, thresholds: &MarketThresh
     } else {
         (
             CheckStatus::Ok,
-            format!("{} distinct spread values across {values} rows", distinct.len()),
+            format!(
+                "{} distinct spread values across {values} rows",
+                distinct.len()
+            ),
         )
     };
     DiagnosticCheck {
@@ -925,7 +929,11 @@ fn return_tail_check(rows: &[Row], thresholds: &MarketThresholds) -> DiagnosticC
     let m2 = returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / n;
     let m4 = returns.iter().map(|r| (r - mean).powi(4)).sum::<f64>() / n;
     let zero_ratio = zero as f64 / returns.len() as f64;
-    let excess = if m2 > 0.0 { m4 / (m2 * m2) - 3.0 } else { f64::NAN };
+    let excess = if m2 > 0.0 {
+        m4 / (m2 * m2) - 3.0
+    } else {
+        f64::NAN
+    };
     metrics.insert("zero_returns".to_string(), zero.to_string());
     metrics.insert("zero_ratio".to_string(), format!("{zero_ratio:.4}"));
     metrics.insert(
@@ -987,7 +995,10 @@ fn price_plausibility_check(rows: &[Row], thresholds: &MarketThresholds) -> Diag
     let mut invalid = 0usize;
     for row in rows {
         let mut bad = false;
-        for value in [row.open, row.high, row.low, row.close].into_iter().flatten() {
+        for value in [row.open, row.high, row.low, row.close]
+            .into_iter()
+            .flatten()
+        {
             if !value.is_finite() || value <= 0.0 {
                 bad = true;
             }
@@ -1024,7 +1035,10 @@ fn price_plausibility_check(rows: &[Row], thresholds: &MarketThresholds) -> Diag
     let (status, summary) = if ratio > thresholds.max_invalid_price_ratio {
         (
             CheckStatus::Warning,
-            format!("{invalid} of {} rows have implausible OHLC values", rows.len()),
+            format!(
+                "{invalid} of {} rows have implausible OHLC values",
+                rows.len()
+            ),
         )
     } else {
         (
@@ -1048,7 +1062,10 @@ fn ordering_check(range: &TimeRange) -> DiagnosticCheck {
         "non_monotonic_steps".to_string(),
         range.non_monotonic_steps.to_string(),
     );
-    metrics.insert("duplicate_steps".to_string(), range.duplicate_steps.to_string());
+    metrics.insert(
+        "duplicate_steps".to_string(),
+        range.duplicate_steps.to_string(),
+    );
     let status = if range.non_monotonic_steps > 0 {
         CheckStatus::Warning
     } else {
@@ -1144,7 +1161,10 @@ fn compare_baseline(
 
 fn baseline_metrics(comparison: &BaselineComparison) -> BTreeMap<String, String> {
     let mut metrics = BTreeMap::new();
-    metrics.insert("matched_days".to_string(), comparison.matched_days.to_string());
+    metrics.insert(
+        "matched_days".to_string(),
+        comparison.matched_days.to_string(),
+    );
     metrics.insert("data_days".to_string(), comparison.data_days.to_string());
     metrics.insert(
         "max_relative_diff".to_string(),

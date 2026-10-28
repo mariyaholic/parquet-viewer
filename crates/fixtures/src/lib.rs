@@ -14,8 +14,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use arrow_array::{
-    ArrayRef, BinaryArray, BooleanArray, Date32Array, Decimal128Array, Float64Array,
-    Int32Array, Int64Array, ListArray, NullArray, StringArray, StructArray, TimestampMicrosecondArray,
+    ArrayRef, BinaryArray, BooleanArray, Date32Array, Decimal128Array, Float64Array, Int32Array,
+    Int64Array, ListArray, NullArray, StringArray, StructArray, TimestampMicrosecondArray,
     TimestampMillisecondArray,
 };
 use arrow_buffer::{NullBuffer, OffsetBuffer};
@@ -128,15 +128,19 @@ fn write_trades(path: &Path) -> io::Result<()> {
     let symbols: Vec<Option<&str>> = (0..rows)
         .map(|i| if i % 13 == 12 { None } else { Some("EURUSD") })
         .collect();
-    let open: Vec<f64> = (0..rows)
-        .map(|i| 1.1000 + (i as f64) * 0.0001)
-        .collect();
+    let open: Vec<f64> = (0..rows).map(|i| 1.1000 + (i as f64) * 0.0001).collect();
     let high: Vec<f64> = open.iter().map(|v| v + 0.0004).collect();
     let low: Vec<f64> = open.iter().map(|v| v - 0.0003).collect();
     let close: Vec<f64> = open.iter().map(|v| v + 0.0001).collect();
     let volume: Vec<i64> = (0..rows).map(|i| 100 + i as i64).collect();
     let spread: Vec<Option<f64>> = (0..rows)
-        .map(|i| if i % 19 == 18 { None } else { Some(0.0002 + (i % 5) as f64 * 0.00001) })
+        .map(|i| {
+            if i % 19 == 18 {
+                None
+            } else {
+                Some(0.0002 + (i % 5) as f64 * 0.00001)
+            }
+        })
         .collect();
 
     let venue: Vec<Option<&str>> = (0..rows)
@@ -223,7 +227,9 @@ fn write_multi_row_groups(path: &Path) -> io::Result<()> {
         schema.clone(),
         vec![
             Arc::new(Date32Array::from(
-                (0..rows).map(|i| base_day + (i / 10) as i32).collect::<Vec<_>>(),
+                (0..rows)
+                    .map(|i| base_day + (i / 10) as i32)
+                    .collect::<Vec<_>>(),
             )),
             Arc::new(
                 TimestampMicrosecondArray::from(
@@ -311,7 +317,14 @@ fn write_nested(path: &Path) -> io::Result<()> {
         Field::new("nothing", DataType::Null, true),
     ]));
 
-    let kind: Vec<Option<&str>> = vec![Some("alpha"), None, Some("beta"), Some("gamma"), None, Some("delta")];
+    let kind: Vec<Option<&str>> = vec![
+        Some("alpha"),
+        None,
+        Some("beta"),
+        Some("gamma"),
+        None,
+        Some("delta"),
+    ];
     let mut flag_offsets: Vec<i32> = vec![0];
     let mut flag_values: Vec<Option<bool>> = Vec::new();
     for i in 0..rows {
@@ -361,7 +374,14 @@ fn write_nested(path: &Path) -> io::Result<()> {
         None,
         Some(&[0x41, 0x42]),
     ];
-    let days: Vec<Option<i32>> = vec![Some(19_723), None, Some(19_724), Some(19_726), None, Some(19_730)];
+    let days: Vec<Option<i32>> = vec![
+        Some(19_723),
+        None,
+        Some(19_724),
+        Some(19_726),
+        None,
+        Some(19_730),
+    ];
     let local_ts: Vec<Option<i64>> = vec![
         Some(0),
         Some(1_500_000),
@@ -384,12 +404,7 @@ fn write_nested(path: &Path) -> io::Result<()> {
         ],
     )
     .map_err(|e| io::Error::other(e.to_string()))?;
-    write_batches(
-        path,
-        schema,
-        &[batch],
-        props(10, Compression::SNAPPY),
-    )
+    write_batches(path, schema, &[batch], props(10, Compression::SNAPPY))
 }
 
 /// A deliberately suspicious market series: constant spread, every open equal
@@ -428,12 +443,7 @@ fn write_constant_market(path: &Path) -> io::Result<()> {
         ],
     )
     .map_err(|e| io::Error::other(e.to_string()))?;
-    write_batches(
-        path,
-        schema,
-        &[batch],
-        props(20, Compression::SNAPPY),
-    )
+    write_batches(path, schema, &[batch], props(20, Compression::SNAPPY))
 }
 
 fn write_empty(path: &Path) -> io::Result<()> {
@@ -449,12 +459,12 @@ fn write_empty(path: &Path) -> io::Result<()> {
 fn write_codecs(dir: &Path) -> io::Result<()> {
     let codecs = [
         ("codec_snappy.parquet", Compression::SNAPPY),
-        (
-            "codec_gzip.parquet",
-            Compression::GZIP(Default::default()),
-        ),
+        ("codec_gzip.parquet", Compression::GZIP(Default::default())),
         ("codec_zstd.parquet", Compression::ZSTD(Default::default())),
-        ("codec_brotli.parquet", Compression::BROTLI(Default::default())),
+        (
+            "codec_brotli.parquet",
+            Compression::BROTLI(Default::default()),
+        ),
         ("codec_lz4.parquet", Compression::LZ4_RAW),
     ];
     let schema = Arc::new(arrow_schema::Schema::new(vec![
@@ -483,7 +493,10 @@ fn write_malformed(dir: &Path) -> io::Result<()> {
     let source = dir.join(TRADES);
     let bytes = fs::read(&source)?;
 
-    fs::write(malformed.join("truncated.parquet"), &bytes[..bytes.len() - 20])?;
+    fs::write(
+        malformed.join("truncated.parquet"),
+        &bytes[..bytes.len() - 20],
+    )?;
 
     let mut bad_magic = bytes.clone();
     let len = bad_magic.len();

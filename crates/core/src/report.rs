@@ -311,11 +311,7 @@ pub fn render(report: &PreviewReport) -> String {
     );
     budget.line(
         &mut out,
-        &format!(
-            "{} - {}.",
-            report.credit,
-            report.licence
-        ),
+        &format!("{} - {}.", report.credit, report.licence),
     );
     budget.line(
         &mut out,
@@ -341,17 +337,16 @@ fn row_count_label(report: &PreviewReport) -> String {
 }
 
 fn render_schema(out: &mut String, report: &PreviewReport, budget: &mut TextBudget) {
-    fn walk(
-        field: &crate::SchemaField,
-        depth: usize,
-        out: &mut String,
-        budget: &mut TextBudget,
-    ) {
+    fn walk(field: &crate::SchemaField, depth: usize, out: &mut String, budget: &mut TextBudget) {
         if budget.is_full() || depth > 8 {
             return;
         }
         let indent = "  ".repeat(depth);
-        let repetition = if field.nullable { "optional" } else { "required" };
+        let repetition = if field.nullable {
+            "optional"
+        } else {
+            "required"
+        };
         if field.leaf {
             let mut line = format!(
                 "{indent}{} : {} [{}]",
@@ -375,7 +370,10 @@ fn render_schema(out: &mut String, report: &PreviewReport, budget: &mut TextBudg
             if field.children_omitted > 0 {
                 budget.line(
                     out,
-                    &format!("{indent}  ... {} child leaf column(s) omitted", field.children_omitted),
+                    &format!(
+                        "{indent}  ... {} child leaf column(s) omitted",
+                        field.children_omitted
+                    ),
                 );
             }
         }
@@ -425,7 +423,12 @@ fn render_sample(out: &mut String, report: &PreviewReport, budget: &mut TextBudg
         SampleStatus::Truncated | SampleStatus::Unavailable => {
             budget.line(
                 out,
-                &format!("{} ({} returned): {}", status_label(sample.status), sample.returned, sample.message),
+                &format!(
+                    "{} ({} returned): {}",
+                    status_label(sample.status),
+                    sample.returned,
+                    sample.message
+                ),
             );
         }
     }

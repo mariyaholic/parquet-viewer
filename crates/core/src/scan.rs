@@ -165,9 +165,7 @@ impl Session {
         let mut current_group = 0usize;
         let mut group_remaining = selected
             .iter()
-            .map(|index| {
-                u64::try_from(metadata.row_groups()[*index].num_rows()).unwrap_or(0)
-            })
+            .map(|index| u64::try_from(metadata.row_groups()[*index].num_rows()).unwrap_or(0))
             .filter(|rows| *rows > 0)
             .collect::<Vec<_>>();
 
@@ -387,10 +385,7 @@ fn raw_date_range(array: &dyn Array, kind: &DateKind, rows: usize) -> Option<(i6
                     .as_any()
                     .downcast_ref::<PrimitiveArray<Date64Type>>()?;
                 let (min, max) = primitive_range(array, rows)?;
-                Some((
-                    min.div_euclid(86_400_000),
-                    max.div_euclid(86_400_000),
-                ))
+                Some((min.div_euclid(86_400_000), max.div_euclid(86_400_000)))
             }
             _ => None,
         },

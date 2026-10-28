@@ -54,26 +54,26 @@ fn sample_returns_requested_page_and_nested_values() {
         CellValue::Timestamp("2024-01-01T00:00:00Z".into())
     );
     assert_eq!(sample.rows[0].values[1], CellValue::Text("EURUSD".into()));
-    assert_eq!(sample.rows[0].values[8], CellValue::Struct {
-        fields: vec![
-            parquet_preview_core::sample::StructFieldValue {
-                name: "venue".into(),
-                value: CellValue::Text("SIM".into()),
-            },
-            parquet_preview_core::sample::StructFieldValue {
-                name: "seq".into(),
-                value: CellValue::Integer(0),
-            },
-        ],
-        omitted: 0,
-    });
+    assert_eq!(
+        sample.rows[0].values[8],
+        CellValue::Struct {
+            fields: vec![
+                parquet_preview_core::sample::StructFieldValue {
+                    name: "venue".into(),
+                    value: CellValue::Text("SIM".into()),
+                },
+                parquet_preview_core::sample::StructFieldValue {
+                    name: "seq".into(),
+                    value: CellValue::Integer(0),
+                },
+            ],
+            omitted: 0,
+        }
+    );
     assert_eq!(
         sample.rows[0].values[9],
         CellValue::List {
-            items: vec![
-                CellValue::Text("fx".into()),
-                CellValue::Text("sim".into())
-            ],
+            items: vec![CellValue::Text("fx".into()), CellValue::Text("sim".into())],
             omitted: 0,
         }
     );
@@ -139,7 +139,10 @@ fn nested_values_render_safely() {
     let sample = session.sample(0, 6).unwrap();
     assert_eq!(sample.status, SampleStatus::Complete);
     assert_eq!(sample.returned, 6);
-    assert_eq!(sample.rows[0].values[2], CellValue::Decimal("123.45".into()));
+    assert_eq!(
+        sample.rows[0].values[2],
+        CellValue::Decimal("123.45".into())
+    );
     assert_eq!(
         sample.rows[0].values[3],
         CellValue::Binary {
@@ -161,7 +164,10 @@ fn nested_values_render_safely() {
     let rendered = sample.rows[0].values[1].render();
     assert!(rendered.contains("kind: alpha"), "{rendered}");
     assert!(rendered.contains("flags: [true, false]"), "{rendered}");
-    assert_eq!(sample.rows[3].values[1].render(), "{kind: gamma, flags: []}");
+    assert_eq!(
+        sample.rows[3].values[1].render(),
+        "{kind: gamma, flags: []}"
+    );
 
     let trades = open(fixtures::TRADES).sample(7, 1).unwrap();
     assert_eq!(
@@ -198,7 +204,10 @@ fn all_compression_codecs_decode() {
 fn empty_file_is_not_an_error() {
     let session = open(fixtures::EMPTY);
     assert_eq!(session.summary().row_count.value, 0);
-    assert_eq!(session.summary().date_bounds[0].status, CoverageStatus::Unavailable);
+    assert_eq!(
+        session.summary().date_bounds[0].status,
+        CoverageStatus::Unavailable
+    );
     let sample = session.sample(0, 10).unwrap();
     assert_eq!(sample.status, SampleStatus::Complete);
     assert_eq!(sample.returned, 0);
@@ -270,7 +279,9 @@ fn inspection_never_modifies_the_input_file() {
     let before = std::fs::read(&path).unwrap();
     let session = Session::open_path(&path, &Limits::default()).unwrap();
     let _ = session.sample(0, 10).unwrap();
-    let report = session.scan(&parquet_preview_core::CancelToken::new()).unwrap();
+    let report = session
+        .scan(&parquet_preview_core::CancelToken::new())
+        .unwrap();
     assert_eq!(report.exact_row_count, Some(60));
     let after = std::fs::read(&path).unwrap();
     assert_eq!(before, after);

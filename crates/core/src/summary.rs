@@ -153,15 +153,18 @@ pub fn summarize(
         ));
     }
 
-    let total_rows = metadata.row_groups().iter().map(|g| g.num_rows()).sum::<i64>();
+    let total_rows = metadata
+        .row_groups()
+        .iter()
+        .map(|g| g.num_rows())
+        .sum::<i64>();
     let total_rows = u64::try_from(total_rows).unwrap_or(0);
 
     let mut listed = Vec::with_capacity(metadata.row_groups().len().min(limits.max_row_groups));
     let mut compressed_bytes = 0u64;
     for (index, group) in metadata.row_groups().iter().enumerate() {
-        compressed_bytes = compressed_bytes.saturating_add(
-            u64::try_from(group.compressed_size().max(0)).unwrap_or(0),
-        );
+        compressed_bytes = compressed_bytes
+            .saturating_add(u64::try_from(group.compressed_size().max(0)).unwrap_or(0));
         if index < limits.max_row_groups {
             listed.push(RowGroupInfo {
                 index,
@@ -209,7 +212,10 @@ pub fn summarize(
         row_groups: RowGroupsSummary {
             total: metadata.row_groups().len(),
             listed,
-            omitted: metadata.row_groups().len().saturating_sub(limits.max_row_groups),
+            omitted: metadata
+                .row_groups()
+                .len()
+                .saturating_sub(limits.max_row_groups),
             rows_metadata: total_rows,
             compressed_bytes,
         },

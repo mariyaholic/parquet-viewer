@@ -109,9 +109,7 @@ impl Limits {
             max_nested_items: self.max_nested_items.min(other.max_nested_items),
             max_nested_depth: self.max_nested_depth.min(other.max_nested_depth),
             max_diagnostic_rows: self.max_diagnostic_rows.min(other.max_diagnostic_rows),
-            max_diagnostic_millis: self
-                .max_diagnostic_millis
-                .min(other.max_diagnostic_millis),
+            max_diagnostic_millis: self.max_diagnostic_millis.min(other.max_diagnostic_millis),
             max_baseline_bytes: self.max_baseline_bytes.min(other.max_baseline_bytes),
         }
     }

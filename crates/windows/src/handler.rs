@@ -21,7 +21,6 @@ use crate::job::JobGuard;
 use crate::stream::{self, StreamReader};
 use crate::win32_registry;
 
-
 const WM_APP_PREVIEW_READY: u32 = 0x8000 + 1;
 
 struct WindowContext {
@@ -497,11 +496,7 @@ unsafe extern "system" fn window_proc(
         }
         WM_APP_PREVIEW_READY => {
             if !context.is_null() {
-                let text = (*context)
-                    .text
-                    .lock()
-                    .ok()
-                    .and_then(|mut slot| slot.take());
+                let text = (*context).text.lock().ok().and_then(|mut slot| slot.take());
                 if let Some(text) = text {
                     set_window_text((*context).edit, &text);
                 }

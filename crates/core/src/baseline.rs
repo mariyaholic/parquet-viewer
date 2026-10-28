@@ -44,9 +44,7 @@ impl ReferenceBaseline {
         max_bytes: u64,
     ) -> Result<Self> {
         if spec.path.trim().is_empty() {
-            return Err(PreviewError::Baseline(
-                "baseline path is empty".to_string(),
-            ));
+            return Err(PreviewError::Baseline("baseline path is empty".to_string()));
         }
         if let (Some(a), Some(b)) = (spec.instrument.as_deref(), profile_instrument) {
             if !a.eq_ignore_ascii_case(b) {
@@ -85,9 +83,8 @@ impl ReferenceBaseline {
             .file_name()
             .map(|name| escape_text(&name.to_string_lossy(), 80))
             .unwrap_or_else(|| "baseline.csv".to_string());
-        let file = std::fs::File::open(path).map_err(|e| {
-            PreviewError::Baseline(format!("cannot open the baseline file: {e}"))
-        })?;
+        let file = std::fs::File::open(path)
+            .map_err(|e| PreviewError::Baseline(format!("cannot open the baseline file: {e}")))?;
         let mut bytes = Vec::new();
         file.take(max_bytes.saturating_add(1))
             .read_to_end(&mut bytes)
@@ -123,9 +120,7 @@ impl ReferenceBaseline {
             ));
         };
         let header = split_csv(header);
-        let date_index = header
-            .iter()
-            .position(|h| h.eq_ignore_ascii_case("date"));
+        let date_index = header.iter().position(|h| h.eq_ignore_ascii_case("date"));
         let price_index = header
             .iter()
             .position(|h| h.eq_ignore_ascii_case("price") || h.eq_ignore_ascii_case("close"));
@@ -233,14 +228,18 @@ mod tests {
         assert_eq!(parse_iso_date("2024-02-29"), Some(19_782));
         assert_eq!(parse_iso_date("2023-02-29"), None);
         assert_eq!(parse_iso_date("2024-13-01"), None);
-        assert_eq!(parse_iso_date("2024-1-1"), Some(days_from_civil(2024, 1, 1)));
+        assert_eq!(
+            parse_iso_date("2024-1-1"),
+            Some(days_from_civil(2024, 1, 1))
+        );
         assert_eq!(parse_iso_date("not-a-date"), None);
     }
 
     #[test]
     fn parses_instrument_specific_csv() {
         let csv = "instrument,date,price\nEURUSD,2024-01-01,1.10\nGBPUSD,2024-01-01,1.27\nEURUSD,2024-01-02,1.11\n";
-        let baseline = ReferenceBaseline::parse_csv(csv, "EURUSD", "test", "test.csv".into()).unwrap();
+        let baseline =
+            ReferenceBaseline::parse_csv(csv, "EURUSD", "test", "test.csv".into()).unwrap();
         assert_eq!(baseline.points.len(), 2);
         assert_eq!(baseline.points.get(&19_723), Some(&1.10));
         assert_eq!(baseline.range_label(), "2024-01-01 to 2024-01-02");
@@ -249,13 +248,10 @@ mod tests {
     #[test]
     fn rejects_missing_columns_and_bad_prices() {
         assert!(ReferenceBaseline::parse_csv("date,value\n", "X", "test", "t".into()).is_err());
-        assert!(ReferenceBaseline::parse_csv(
-            "date,price\n2024-01-01,\n",
-            "X",
-            "test",
-            "t".into()
-        )
-        .is_err());
+        assert!(
+            ReferenceBaseline::parse_csv("date,price\n2024-01-01,\n", "X", "test", "t".into())
+                .is_err()
+        );
         assert!(ReferenceBaseline::parse_csv(
             "date,price\n2024-01-01,-1\n",
             "X",

@@ -269,8 +269,7 @@ impl WorkerClient {
     }
 
     fn read(&mut self) -> Result<Response> {
-        let frame = read_frame(&mut self.output, &self.frames)?
-            .ok_or(ClientError::Closed)?;
+        let frame = read_frame(&mut self.output, &self.frames)?.ok_or(ClientError::Closed)?;
         match frame {
             Frame::Control(_) => Ok(decode_control(frame)?),
             Frame::StreamChunk(_) => Err(ClientError::Unexpected(

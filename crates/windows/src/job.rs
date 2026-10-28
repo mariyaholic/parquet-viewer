@@ -36,13 +36,8 @@ impl JobGuard {
         if ok == 0 {
             return Err("SetInformationJobObject failed".to_string());
         }
-        let process = unsafe {
-            ffi::OpenProcess(
-                ffi::PROCESS_SET_QUOTA | ffi::PROCESS_TERMINATE,
-                0,
-                pid,
-            )
-        };
+        let process =
+            unsafe { ffi::OpenProcess(ffi::PROCESS_SET_QUOTA | ffi::PROCESS_TERMINATE, 0, pid) };
         if process == 0 {
             return Err("OpenProcess for the worker failed".to_string());
         }

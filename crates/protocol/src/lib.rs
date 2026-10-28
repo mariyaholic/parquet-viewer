@@ -52,11 +52,7 @@ pub enum ProtocolError {
     #[error("truncated frame header")]
     TruncatedHeader,
     #[error("frame of {length} bytes exceeds the {max}-byte cap for tag {tag}")]
-    FrameTooLarge {
-        tag: u8,
-        length: usize,
-        max: usize,
-    },
+    FrameTooLarge { tag: u8, length: usize, max: usize },
     #[error("unknown frame tag {0}")]
     UnknownTag(u8),
     #[error("invalid control JSON: {0}")]
@@ -114,10 +110,7 @@ pub fn write_control<W: Write, T: Serialize>(
     Ok(())
 }
 
-pub fn write_stream_chunk<W: Write>(
-    writer: &mut W,
-    chunk: &[u8],
-) -> Result<(), ProtocolError> {
+pub fn write_stream_chunk<W: Write>(writer: &mut W, chunk: &[u8]) -> Result<(), ProtocolError> {
     if chunk.len() > DEFAULT_MAX_STREAM_CHUNK {
         return Err(ProtocolError::FrameTooLarge {
             tag: TAG_STREAM,
@@ -285,7 +278,10 @@ mod tests {
     #[test]
     fn clean_eof_is_none() {
         let limits = FrameLimits::default();
-        assert_eq!(read_frame(&mut Cursor::new(Vec::new()), &limits).unwrap(), None);
+        assert_eq!(
+            read_frame(&mut Cursor::new(Vec::new()), &limits).unwrap(),
+            None
+        );
     }
 
     #[test]
@@ -327,12 +323,18 @@ mod tests {
         let control = vec![0, 0, 0, 5, TAG_CONTROL, b'a', b'b', b'c', b'd', b'e'];
         assert!(matches!(
             read_frame(&mut Cursor::new(control), &limits),
-            Err(ProtocolError::FrameTooLarge { tag: TAG_CONTROL, .. })
+            Err(ProtocolError::FrameTooLarge {
+                tag: TAG_CONTROL,
+                ..
+            })
         ));
         let chunk = vec![0, 0, 0, 3, TAG_STREAM, 1, 2, 3];
         assert!(matches!(
             read_frame(&mut Cursor::new(chunk), &limits),
-            Err(ProtocolError::FrameTooLarge { tag: TAG_STREAM, .. })
+            Err(ProtocolError::FrameTooLarge {
+                tag: TAG_STREAM,
+                ..
+            })
         ));
     }
 

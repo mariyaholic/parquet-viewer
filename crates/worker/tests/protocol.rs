@@ -5,12 +5,12 @@ use std::io::Cursor;
 
 use parquet_preview_core::market::{MarketProfile, MarketThresholds};
 use parquet_preview_core::{PreviewOptions, Settings};
+use parquet_preview_fixtures as fixtures;
 use parquet_preview_protocol::{
     decode_control, read_frame, write_control, write_stream_chunk, ErrorCode, FrameLimits, Request,
     Response,
 };
 use parquet_preview_worker::{serve, WorkerConfig};
-use parquet_preview_fixtures as fixtures;
 
 fn fixture(name: &str) -> std::path::PathBuf {
     fixtures::fixture_dir(env!("CARGO_MANIFEST_DIR")).join(name)

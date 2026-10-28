@@ -79,13 +79,20 @@ pub fn default_settings_path() -> Option<PathBuf> {
     }
     #[cfg(windows)]
     {
-        std::env::var_os("APPDATA")
-            .map(|dir| PathBuf::from(dir).join("ParquetPreview").join("settings.json"))
+        std::env::var_os("APPDATA").map(|dir| {
+            PathBuf::from(dir)
+                .join("ParquetPreview")
+                .join("settings.json")
+        })
     }
     #[cfg(not(windows))]
     {
         if let Some(dir) = std::env::var_os("XDG_CONFIG_HOME") {
-            return Some(PathBuf::from(dir).join("parquet-preview").join("settings.json"));
+            return Some(
+                PathBuf::from(dir)
+                    .join("parquet-preview")
+                    .join("settings.json"),
+            );
         }
         std::env::var_os("HOME").map(|dir| {
             PathBuf::from(dir)

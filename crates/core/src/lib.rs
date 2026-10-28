@@ -14,9 +14,9 @@ pub mod limits;
 pub mod market;
 pub mod report;
 pub mod sample;
-pub mod settings;
 pub mod scan;
 pub mod session;
+pub mod settings;
 pub mod source;
 pub mod summary;
 pub mod time;
@@ -25,11 +25,11 @@ pub use date_bounds::{CoverageStatus, DateBounds, DateColumn, DateKind};
 pub use error::{PreviewError, Result};
 pub use footer::{parse_footer, FooterInfo};
 pub use limits::Limits;
+pub use report::{PreviewOptions, PreviewReport};
 pub use sample::{CellValue, SampleReport, SampleStatus};
 pub use scan::{CancelToken, ScanReport, ScanStatus};
-pub use report::{PreviewOptions, PreviewReport};
-pub use settings::Settings;
 pub use session::Session;
+pub use settings::Settings;
 pub use source::{BoxSource, ReadSeek, SharedSource};
 pub use summary::{
     CountSource, FileSummary, RowCount, RowGroupInfo, RowGroupsSummary, SchemaField, SchemaSummary,

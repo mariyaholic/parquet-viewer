@@ -16,18 +16,16 @@ fn main() -> ExitCode {
     }
     let dir = PathBuf::from(dir);
     match parquet_preview_fixtures::write_all(&dir) {
-        Ok(()) => {
-            match parquet_preview_fixtures::write_baseline(&dir.join("baseline.csv")) {
-                Ok(()) => {
-                    println!("wrote fixtures to {}", dir.display());
-                    ExitCode::SUCCESS
-                }
-                Err(err) => {
-                    eprintln!("failed to write baseline: {err}");
-                    ExitCode::FAILURE
-                }
+        Ok(()) => match parquet_preview_fixtures::write_baseline(&dir.join("baseline.csv")) {
+            Ok(()) => {
+                println!("wrote fixtures to {}", dir.display());
+                ExitCode::SUCCESS
             }
-        }
+            Err(err) => {
+                eprintln!("failed to write baseline: {err}");
+                ExitCode::FAILURE
+            }
+        },
         Err(err) => {
             eprintln!("failed to write fixtures: {err}");
             ExitCode::FAILURE

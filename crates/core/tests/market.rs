@@ -43,7 +43,10 @@ fn trades_trigger_open_prev_close_warning() {
     assert_eq!(report.status, CheckStatus::Warning);
     assert_eq!(report.rows_used, 60);
     assert!(report.coverage.contains("not a full scan"));
-    assert_eq!(check(&report, "open_prev_close").status, CheckStatus::Warning);
+    assert_eq!(
+        check(&report, "open_prev_close").status,
+        CheckStatus::Warning
+    );
     assert_eq!(check(&report, "spread").status, CheckStatus::Ok);
     assert_eq!(check(&report, "price_plausibility").status, CheckStatus::Ok);
     assert_eq!(check(&report, "baseline").status, CheckStatus::Unavailable);
@@ -72,7 +75,10 @@ fn constant_market_triggers_multiple_warnings() {
         .unwrap();
     assert_eq!(report.status, CheckStatus::Warning);
     assert_eq!(check(&report, "spread").status, CheckStatus::Warning);
-    assert_eq!(check(&report, "open_prev_close").status, CheckStatus::Warning);
+    assert_eq!(
+        check(&report, "open_prev_close").status,
+        CheckStatus::Warning
+    );
     assert_eq!(check(&report, "return_tails").status, CheckStatus::Warning);
 }
 
@@ -89,9 +95,7 @@ fn row_cap_and_cancellation_are_reported() {
 
     let cancel = CancelToken::new();
     cancel.cancel();
-    let report = session
-        .diagnose(&profile(), None, 1000, &cancel)
-        .unwrap();
+    let report = session.diagnose(&profile(), None, 1000, &cancel).unwrap();
     assert_eq!(report.status, CheckStatus::Unavailable);
     assert!(report.notes.iter().any(|n| n.contains("cancelled")));
 }
@@ -120,7 +124,10 @@ fn invalid_field_mapping_is_unavailable_not_a_crash() {
 fn dated_baseline_compares_overlapping_days() {
     let session = open(fixtures::TRADES, &Limits::default());
     let spec = BaselineSpec {
-        path: fixture_dir().join("baseline.csv").to_string_lossy().to_string(),
+        path: fixture_dir()
+            .join("baseline.csv")
+            .to_string_lossy()
+            .to_string(),
         instrument: Some("EURUSD".into()),
         licence: Some("synthetic test baseline".into()),
     };
@@ -139,7 +146,10 @@ fn dated_baseline_compares_overlapping_days() {
 fn missing_baseline_file_is_reported_without_failing_preview() {
     let session = open(fixtures::TRADES, &Limits::default());
     let spec = BaselineSpec {
-        path: fixture_dir().join("does-not-exist.csv").to_string_lossy().to_string(),
+        path: fixture_dir()
+            .join("does-not-exist.csv")
+            .to_string_lossy()
+            .to_string(),
         instrument: Some("EURUSD".into()),
         licence: Some("synthetic test baseline".into()),
     };
@@ -152,10 +162,7 @@ fn missing_baseline_file_is_reported_without_failing_preview() {
 
 #[test]
 fn baseline_without_overlapping_dates_is_unavailable() {
-    let dir = std::env::temp_dir().join(format!(
-        "parquet-preview-baseline-{}",
-        std::process::id()
-    ));
+    let dir = std::env::temp_dir().join(format!("parquet-preview-baseline-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("future.csv");
     std::fs::write(&path, "date,price\n2030-01-01,1.2\n").unwrap();

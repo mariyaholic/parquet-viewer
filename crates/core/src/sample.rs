@@ -10,12 +10,12 @@ use std::time::{Duration, Instant};
 
 use arrow_array::{
     Array, BinaryArray, BooleanArray, Date32Array, Date64Array, Decimal128Array, Decimal256Array,
-    Float32Array, Float64Array, Int8Array, Int16Array, Int32Array, Int64Array, LargeBinaryArray,
+    Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, Int8Array, LargeBinaryArray,
     LargeListArray, LargeStringArray, ListArray, MapArray, StringArray, StringViewArray,
     StructArray, Time32MillisecondArray, Time32SecondArray, Time64MicrosecondArray,
     Time64NanosecondArray, TimestampMicrosecondArray, TimestampMillisecondArray,
-    TimestampNanosecondArray, TimestampSecondArray, UInt8Array, UInt16Array, UInt32Array,
-    UInt64Array,
+    TimestampNanosecondArray, TimestampSecondArray, UInt16Array, UInt32Array, UInt64Array,
+    UInt8Array,
 };
 use arrow_schema::{DataType, Fields, TimeUnit as ArrowTimeUnit};
 use parquet::arrow::arrow_reader::{ParquetRecordBatchReaderBuilder, RowSelection};
@@ -55,12 +55,18 @@ pub enum CellValue {
     Float(String),
     Decimal(String),
     Text(String),
-    Binary { bytes: usize, preview: String },
+    Binary {
+        bytes: usize,
+        preview: String,
+    },
     Date(String),
     Timestamp(String),
     Time(String),
     Duration(String),
-    List { items: Vec<CellValue>, omitted: usize },
+    List {
+        items: Vec<CellValue>,
+        omitted: usize,
+    },
     Map {
         entries: Vec<(CellValue, CellValue)>,
         omitted: usize,
@@ -223,9 +229,8 @@ impl Session {
             let rows = u64::try_from(group.num_rows()).unwrap_or(0);
             let group_end = start_row.saturating_add(rows);
             if group_end > offset && start_row < end {
-                needed_bytes = needed_bytes.saturating_add(
-                    u64::try_from(group.compressed_size().max(0)).unwrap_or(0),
-                );
+                needed_bytes = needed_bytes
+                    .saturating_add(u64::try_from(group.compressed_size().max(0)).unwrap_or(0));
                 covered_groups += 1;
             }
             start_row = group_end;
@@ -452,21 +457,17 @@ fn array_value(
         DataType::Duration(unit) => duration(array, row, unit),
         DataType::Decimal128(_, scale) => decimal128(array, row, *scale),
         DataType::Decimal256(_, scale) => decimal256(array, row, *scale),
-        DataType::List(_) => list_value(
-            array, row, depth, max_depth, max_items, max_chars,
-        ),
-        DataType::LargeList(_) => large_list_value(
-            array, row, depth, max_depth, max_items, max_chars,
-        ),
-        DataType::FixedSizeList(_, _) => fixed_list_value(
-            array, row, depth, max_depth, max_items, max_chars,
-        ),
-        DataType::Struct(fields) => struct_value(
-            array, row, fields, depth, max_depth, max_items, max_chars,
-        ),
-        DataType::Map(_, _) => map_value(
-            array, row, depth, max_depth, max_items, max_chars,
-        ),
+        DataType::List(_) => list_value(array, row, depth, max_depth, max_items, max_chars),
+        DataType::LargeList(_) => {
+            large_list_value(array, row, depth, max_depth, max_items, max_chars)
+        }
+        DataType::FixedSizeList(_, _) => {
+            fixed_list_value(array, row, depth, max_depth, max_items, max_chars)
+        }
+        DataType::Struct(fields) => {
+            struct_value(array, row, fields, depth, max_depth, max_items, max_chars)
+        }
+        DataType::Map(_, _) => map_value(array, row, depth, max_depth, max_items, max_chars),
         other => CellValue::Unsupported(format!("unsupported type {other}")),
     }
 }
@@ -785,7 +786,10 @@ fn fixed_list_value(
     max_items: usize,
     max_chars: usize,
 ) -> CellValue {
-    let Some(list) = array.as_any().downcast_ref::<arrow_array::FixedSizeListArray>() else {
+    let Some(list) = array
+        .as_any()
+        .downcast_ref::<arrow_array::FixedSizeListArray>()
+    else {
         return CellValue::Unsupported("fixed-size list".to_string());
     };
     let values = list.value(row);
@@ -813,9 +817,7 @@ fn nested_items(
 ) -> CellValue {
     let start = offsets[row] as usize;
     let len = (offsets[row + 1] - offsets[row]) as usize;
-    grid_items(
-        values, start, len, depth, max_depth, max_items, max_chars,
-    )
+    grid_items(values, start, len, depth, max_depth, max_items, max_chars)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -971,9 +973,6 @@ mod tests {
 
     #[test]
     fn escaping_applies_to_text() {
-        assert_eq!(
-            text(Some("line\nbreak"), 32).render(),
-            "line\\nbreak"
-        );
+        assert_eq!(text(Some("line\nbreak"), 32).render(), "line\\nbreak");
     }
 }

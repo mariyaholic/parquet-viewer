@@ -64,9 +64,7 @@ pub fn format_timestamp_parts(seconds: i64, nanos: u32, adjusted_to_utc: bool) -
     let hour = sod / 3_600;
     let minute = (sod % 3_600) / 60;
     let second = sod % 60;
-    let mut out = format!(
-        "{y:04}-{mo:02}-{d:02}T{hour:02}:{minute:02}:{second:02}"
-    );
+    let mut out = format!("{y:04}-{mo:02}-{d:02}T{hour:02}:{minute:02}:{second:02}");
     if nanos > 0 {
         let mut fraction = format!("{nanos:09}");
         while fraction.ends_with('0') {

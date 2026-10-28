@@ -62,8 +62,7 @@ struct IPreviewHandlerVtbl {
     unload: unsafe extern "system" fn(*mut c_void) -> ffi::HRESULT,
     set_focus: unsafe extern "system" fn(*mut c_void) -> ffi::HRESULT,
     query_focus: unsafe extern "system" fn(*mut c_void, *mut ffi::HWND) -> ffi::HRESULT,
-    translate_accelerator:
-        unsafe extern "system" fn(*mut c_void, *const ffi::MSG) -> ffi::HRESULT,
+    translate_accelerator: unsafe extern "system" fn(*mut c_void, *const ffi::MSG) -> ffi::HRESULT,
 }
 
 #[repr(C)]
@@ -175,11 +174,7 @@ macro_rules! refcount_bridge {
             iid: *const ffi::GUID,
             out: *mut *mut c_void,
         ) -> ffi::HRESULT {
-            query_interface(
-                base_from(this, offset_of!(ComObject, $field)),
-                iid,
-                out,
-            )
+            query_interface(base_from(this, offset_of!(ComObject, $field)), iid, out)
         }
 
         unsafe extern "system" fn $add(this: *mut c_void) -> u32 {
@@ -192,7 +187,13 @@ macro_rules! refcount_bridge {
     };
 }
 
-refcount_bridge!(unknown_qi, unknown_add_ref, unknown_release, IUnknownIfc, unknown);
+refcount_bridge!(
+    unknown_qi,
+    unknown_add_ref,
+    unknown_release,
+    IUnknownIfc,
+    unknown
+);
 refcount_bridge!(
     initialize_qi,
     initialize_add_ref,
@@ -200,7 +201,13 @@ refcount_bridge!(
     IInitializeWithStreamIfc,
     initialize
 );
-refcount_bridge!(preview_qi, preview_add_ref, preview_release, IPreviewHandlerIfc, preview);
+refcount_bridge!(
+    preview_qi,
+    preview_add_ref,
+    preview_release,
+    IPreviewHandlerIfc,
+    preview
+);
 refcount_bridge!(
     visuals_qi,
     visuals_add_ref,
@@ -241,10 +248,7 @@ unsafe extern "system" fn set_window(
     }
 }
 
-unsafe extern "system" fn set_rect(
-    this: *mut c_void,
-    rect: *const ffi::RECT,
-) -> ffi::HRESULT {
+unsafe extern "system" fn set_rect(this: *mut c_void, rect: *const ffi::RECT) -> ffi::HRESULT {
     if rect.is_null() {
         return ffi::E_POINTER;
     }
@@ -287,10 +291,7 @@ unsafe extern "system" fn set_focus(this: *mut c_void) -> ffi::HRESULT {
     }
 }
 
-unsafe extern "system" fn query_focus(
-    this: *mut c_void,
-    focus: *mut ffi::HWND,
-) -> ffi::HRESULT {
+unsafe extern "system" fn query_focus(this: *mut c_void, focus: *mut ffi::HWND) -> ffi::HRESULT {
     if focus.is_null() {
         return ffi::E_POINTER;
     }
@@ -325,10 +326,7 @@ unsafe extern "system" fn visuals_set_background_color(
     ffi::S_OK
 }
 
-unsafe extern "system" fn visuals_set_font(
-    _this: *mut c_void,
-    _font: ffi::HFONT,
-) -> ffi::HRESULT {
+unsafe extern "system" fn visuals_set_font(_this: *mut c_void, _font: ffi::HFONT) -> ffi::HRESULT {
     ffi::S_OK
 }
 

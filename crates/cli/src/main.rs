@@ -122,8 +122,8 @@ fn run() -> std::result::Result<ExitCode, String> {
     if let Some(path) = &profile_path {
         let bytes = std::fs::read(path)
             .map_err(|e| format!("cannot read profile {}: {e}", path.display()))?;
-        let profile: MarketProfile = serde_json::from_slice(&bytes)
-            .map_err(|e| format!("invalid profile JSON: {e}"))?;
+        let profile: MarketProfile =
+            serde_json::from_slice(&bytes).map_err(|e| format!("invalid profile JSON: {e}"))?;
         profile.validate().map_err(|e| e.to_string())?;
         options.market_profile = Some(profile);
     }

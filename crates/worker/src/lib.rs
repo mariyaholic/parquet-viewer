@@ -93,10 +93,7 @@ pub fn serve<R: Read, W: Write>(
                     }
                 }
                 Err((code, message)) => {
-                    let _ = write_control(
-                        &mut output,
-                        &Response::Error { code, message },
-                    );
+                    let _ = write_control(&mut output, &Response::Error { code, message });
                     return Ok(());
                 }
             },
@@ -145,10 +142,7 @@ impl State {
         if next > self.declared {
             return Err((
                 ErrorCode::StreamTooLarge,
-                format!(
-                    "stream exceeded its declared {}-byte size",
-                    self.declared
-                ),
+                format!("stream exceeded its declared {}-byte size", self.declared),
             ));
         }
         stream
@@ -356,8 +350,8 @@ impl State {
                         output,
                         &Response::Error {
                             code: ErrorCode::ProfileMissing,
-                            message:
-                                "no market profile configured; diagnostics are opt-in".to_string(),
+                            message: "no market profile configured; diagnostics are opt-in"
+                                .to_string(),
                         },
                     )?;
                     return Ok(Outcome::Continue);
@@ -405,12 +399,7 @@ impl State {
                 Ok(Outcome::Continue)
             }
             Request::About => {
-                write_control(
-                    output,
-                    &Response::About {
-                        text: about_text(),
-                    },
-                )?;
+                write_control(output, &Response::About { text: about_text() })?;
                 Ok(Outcome::Continue)
             }
             Request::Shutdown => {
@@ -420,7 +409,9 @@ impl State {
         }
     }
 
-    fn open_document(&mut self) -> Result<Option<parquet_preview_core::summary::Summary>, PreviewError> {
+    fn open_document(
+        &mut self,
+    ) -> Result<Option<parquet_preview_core::summary::Summary>, PreviewError> {
         let Some(stream) = self.stream.as_mut() else {
             return Ok(None);
         };
