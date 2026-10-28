@@ -78,6 +78,8 @@ pub const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x0000_2000;
 pub const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: i32 = 9;
 pub const PROCESS_SET_QUOTA: u32 = 0x0100;
 pub const PROCESS_TERMINATE: u32 = 0x0001;
+pub const GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS: u32 = 0x0000_0004;
+pub const GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT: u32 = 0x0000_0002;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -242,7 +244,7 @@ pub struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
 
 #[link(name = "kernel32")]
 extern "system" {
-    pub fn GetModuleHandleW(name: *const u16) -> HMODULE;
+    pub fn GetModuleHandleExW(flags: u32, name: *const u16, module: *mut HMODULE) -> BOOL;
     pub fn GetModuleFileNameW(module: HMODULE, buffer: *mut u16, size: u32) -> u32;
     pub fn OpenProcess(access: u32, inherit: BOOL, pid: u32) -> HANDLE;
     pub fn TerminateProcess(process: HANDLE, code: u32) -> BOOL;

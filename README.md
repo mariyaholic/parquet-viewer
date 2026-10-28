@@ -5,7 +5,7 @@ Made by Maria
 Preview a local Parquet file in Windows Explorer with schema, row-group
 information and transparent scan coverage.
 
-Free and open source (Apache-2.0). See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+This product is free and open source (Apache-2.0). See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 Status: v1 implementation. Releases are not code-signed yet.
 

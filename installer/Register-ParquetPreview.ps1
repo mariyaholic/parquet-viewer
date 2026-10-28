@@ -63,6 +63,9 @@ if ($Unregister) {
     }
     $path = Resolve-DllPath -Requested $DllPath
     Invoke-RegSvr32 -Path $path -Unregister
+    if (Test-Path -LiteralPath "HKCU:\Software\Classes\CLSID\$Clsid") {
+        throw "Unregistration did not remove the handler CLSID. Check permissions or run from your own account."
+    }
     Write-Host "Unregistered. Restart Explorer to see the change."
     exit 0
 }
@@ -98,6 +101,10 @@ try {
     Invoke-RegSvr32 -Path $dll
 } finally {
     Remove-Item Env:\PARQUET_PREVIEW_ALLOW_OVERWRITE -ErrorAction SilentlyContinue
+}
+
+if ((Get-CurrentHandler) -ne $Clsid) {
+    throw "Registration did not set the per-user preview handler. Check policy and permissions."
 }
 
 Write-Host "Registered. Restart Explorer (or sign out and back in) to load the preview handler."

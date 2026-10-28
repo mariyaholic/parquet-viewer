@@ -34,6 +34,7 @@ complete: 40 rows decoded, 2/2 row groups, 416 decoded bytes, 0 ms
 Market diagnostics
 warning | first 40 of 40 rows (100.0%); not a full scan | 40 row(s) used
 Instrument: EURUSD
+Thresholds: spread distinct <= 1 | open/prev-close <= 50% | |excess kurtosis| > 10.00 | zero returns > 20% | invalid OHLC > 0% | baseline diff > 2.00%
 Time: 2024-01-01T00:00:00Z to 2024-01-01T00:39:00Z | null rows: 0 | non-monotonic: 0 | duplicates: 0
   [warning] Spread constancy: spread is constant at 0.001 across 40 rows; verify the source
   [warning] Open versus previous close: open equals the previous close in 39 of 39 comparisons (1.0%)

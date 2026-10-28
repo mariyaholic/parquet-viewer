@@ -593,10 +593,13 @@ fn timestamp(
         Some(value) => {
             let adjusted = timezone.is_some();
             let mut rendered = format_timestamp(value, core_unit, adjusted);
-            if let Some(tz) = timezone {
-                if !matches!(tz, "UTC" | "utc" | "+00:00" | "Z") {
-                    rendered.push_str(&format!(" [{}]", escape_text(tz, 40)));
+            match timezone {
+                Some(tz) => {
+                    if !matches!(tz, "UTC" | "utc" | "+00:00" | "Z") {
+                        rendered.push_str(&format!(" [{}]", escape_text(tz, 40)));
+                    }
                 }
+                None => rendered.push_str(" (unadjusted)"),
             }
             CellValue::Timestamp(rendered)
         }

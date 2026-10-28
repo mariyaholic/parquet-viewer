@@ -101,12 +101,27 @@ impl Registry for Win32Registry {
     }
 }
 
+/// Handle of the DLL that contains this code (not the host executable).
+pub fn current_module_handle() -> Result<ffi::HMODULE, String> {
+    let mut module: ffi::HMODULE = 0;
+    let address = current_module_handle as *const () as *const u16;
+    let ok = unsafe {
+        ffi::GetModuleHandleExW(
+            ffi::GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                | ffi::GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            address,
+            &mut module,
+        )
+    };
+    if ok == 0 || module == 0 {
+        return Err("GetModuleHandleExW failed for the handler module".to_string());
+    }
+    Ok(module)
+}
+
 /// Full path of the loaded DLL, queried from the module handle.
 pub fn current_module_path() -> Result<String, String> {
-    let module = unsafe { ffi::GetModuleHandleW(std::ptr::null()) };
-    if module == 0 {
-        return Err("GetModuleHandleW failed".to_string());
-    }
+    let module = current_module_handle()?;
     let mut buffer = vec![0u16; 32_768];
     let length = unsafe {
         ffi::GetModuleFileNameW(module, buffer.as_mut_ptr(), buffer.len() as u32)

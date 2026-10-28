@@ -15,7 +15,7 @@ use crate::display::escape_text;
 use crate::market::{CheckStatus, MarketProfile, MarketReport};
 use crate::sample::{SampleReport, SampleStatus};
 use crate::scan::{ScanReport, ScanStatus};
-use crate::summary::{CountSource, Summary};
+use crate::summary::Summary;
 use crate::{CancelToken, Result, Session};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -66,7 +66,7 @@ impl Session {
     /// Build a preview, retaining the footer summary even when an optional
     /// phase fails. Only opening the file is fatal.
     pub fn preview(&self, options: &PreviewOptions) -> Result<PreviewReport> {
-        let mut notices = self.summary().notices.clone();
+        let mut notices = Vec::new();
         let sample = match self.sample(options.sample_offset, options.sample_limit) {
             Ok(sample) => Some(sample),
             Err(error) => {
@@ -333,7 +333,6 @@ fn row_count_label(report: &PreviewReport) -> String {
             scan.rows_scanned
         );
     }
-    let _ = CountSource::Metadata;
     report.summary.row_count.label.clone()
 }
 
@@ -484,6 +483,19 @@ fn render_market(out: &mut String, report: &PreviewReport, budget: &mut TextBudg
     if let Some(instrument) = &market.instrument {
         budget.line(out, &format!("Instrument: {instrument}"));
     }
+    let thresholds = &market.thresholds;
+    budget.line(
+        out,
+        &format!(
+            "Thresholds: spread distinct <= {} | open/prev-close <= {:.0}% | |excess kurtosis| > {:.2} | zero returns > {:.0}% | invalid OHLC > {:.0}% | baseline diff > {:.2}%",
+            thresholds.constant_spread_max_distinct,
+            thresholds.open_equals_prev_close_max_ratio * 100.0,
+            thresholds.max_excess_kurtosis,
+            thresholds.max_zero_return_ratio * 100.0,
+            thresholds.max_invalid_price_ratio * 100.0,
+            thresholds.baseline_max_relative_diff * 100.0,
+        ),
+    );
     if let Some(range) = &market.time_range {
         budget.line(
             out,

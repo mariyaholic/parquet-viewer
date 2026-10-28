@@ -153,7 +153,7 @@ fn nested_values_render_safely() {
     );
     assert_eq!(
         sample.rows[1].values[5],
-        CellValue::Timestamp("1970-01-01T00:00:01.5".into())
+        CellValue::Timestamp("1970-01-01T00:00:01.5 (unadjusted)".into())
     );
     assert_eq!(sample.rows[0].values[6], CellValue::Null);
     assert_eq!(sample.rows[1].values[1], CellValue::Null);

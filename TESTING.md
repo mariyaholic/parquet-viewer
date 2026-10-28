@@ -17,6 +17,33 @@ cargo check -p parquet-preview-windows --features win-check
 The Linux `win-check` command type-checks the raw Win32/COM surface. It does not
 link Windows libraries and does not prove runtime behaviour.
 
+## Results on 2026-10-28 (Linux x86_64, Rust 1.85.1)
+
+```text
+cargo build --workspace
+  Finished `dev` profile ... (exit 0)
+
+cargo test --workspace
+  21 result lines, 128 tests passed, 0 failed, 0 ignored (exit 0)
+
+cargo check -p parquet-preview-windows --features win-check
+  Finished `dev` profile ... (exit 0)
+
+sha256sum -c tests/fixtures/SHA256SUMS
+  18 files OK
+```
+
+Smoke checks:
+
+```text
+cargo run -p parquet-preview-cli -- --about
+cargo run -p parquet-preview-cli -- tests/fixtures/multi_row_groups.parquet --rows 3 --scan
+cargo run -p parquet-preview-cli -- tests/fixtures/trades.parquet --rows 1 --json
+```
+
+The test count is the sum of library, integration and doc-test result lines; the
+worker/client process test spawns the real `parquet-preview-worker` binary.
+
 ## Automated coverage
 
 | Area | Tests |

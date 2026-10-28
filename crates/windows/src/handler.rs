@@ -367,7 +367,7 @@ fn create_window(
     let class = ffi::wide(WINDOW_CLASS);
     let edit_class = ffi::wide("EDIT");
     let title = ffi::wide("Parquet preview");
-    let instance = unsafe { ffi::GetModuleHandleW(std::ptr::null()) };
+    let instance = win32_registry::current_module_handle().map_err(|e| e.to_string())?;
     if instance == 0 {
         return Err("GetModuleHandleW failed".to_string());
     }
@@ -433,10 +433,7 @@ fn create_window(
 
 fn register_class() -> Result<(), String> {
     let class_name = Box::leak(ffi::wide(WINDOW_CLASS).into_boxed_slice());
-    let instance = unsafe { ffi::GetModuleHandleW(std::ptr::null()) };
-    if instance == 0 {
-        return Err("GetModuleHandleW failed".to_string());
-    }
+    let instance = win32_registry::current_module_handle().map_err(|e| e.to_string())?;
     let class = ffi::WNDCLASSW {
         style: 0,
         lpfnWndProc: Some(window_proc),
