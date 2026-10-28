@@ -121,6 +121,13 @@ impl ChunkReader for SharedSource {
     }
 
     fn get_bytes(&self, start: u64, length: usize) -> parquet::errors::Result<Bytes> {
+        let length_u64 = length as u64;
+        if start > self.len || length_u64 > self.len.saturating_sub(start) {
+            return Err(parquet::errors::ParquetError::EOF(format!(
+                "read of {length} bytes at {start} exceeds the {}-byte stream",
+                self.len
+            )));
+        }
         let data = self
             .read_at(start, length)
             .map_err(|e| parquet::errors::ParquetError::EOF(e.to_string()))?;

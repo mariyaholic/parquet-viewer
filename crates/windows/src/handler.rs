@@ -21,7 +21,7 @@ use crate::job::JobGuard;
 use crate::stream::{self, StreamReader};
 use crate::win32_registry;
 
-const WINDOW_CLASS: &str = "ParquetPreviewPane";
+
 const WM_APP_PREVIEW_READY: u32 = 0x8000 + 1;
 
 struct WindowContext {
@@ -357,14 +357,19 @@ fn set_window_text(window: ffi::HWND, text: &str) {
     }
 }
 
+fn window_class_name() -> &'static [u16] {
+    static NAME: OnceLock<Vec<u16>> = OnceLock::new();
+    NAME.get_or_init(|| ffi::wide(&format!("ParquetPreviewPane-{}", std::process::id())))
+}
+
 fn create_window(
     parent: ffi::HWND,
     rect: &ffi::RECT,
     text: Arc<Mutex<Option<String>>>,
 ) -> Result<(ffi::HWND, ffi::HWND), String> {
     static CLASS: OnceLock<Result<(), String>> = OnceLock::new();
-    CLASS.get_or_init(register_class) .clone()?;
-    let class = ffi::wide(WINDOW_CLASS);
+    CLASS.get_or_init(register_class).clone()?;
+    let class = window_class_name();
     let edit_class = ffi::wide("EDIT");
     let title = ffi::wide("Parquet preview");
     let instance = win32_registry::current_module_handle().map_err(|e| e.to_string())?;
@@ -432,7 +437,7 @@ fn create_window(
 }
 
 fn register_class() -> Result<(), String> {
-    let class_name = Box::leak(ffi::wide(WINDOW_CLASS).into_boxed_slice());
+    let class_name = window_class_name();
     let instance = win32_registry::current_module_handle().map_err(|e| e.to_string())?;
     let class = ffi::WNDCLASSW {
         style: 0,

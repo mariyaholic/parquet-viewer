@@ -85,9 +85,9 @@ Measured with `find ... | xargs wc -l` (including blank/comment lines):
 
 | Scope | Lines |
 | --- | --- |
-| Rust source (`crates/*/src`, excluding tests) | 10,083 |
+| Rust source (`crates/*/src`, excluding tests) | 10,095 |
 | Rust tests (`crates/*/tests`) | 1,107 |
-| Rust total | 11,190 |
+| Rust total | 11,202 |
 | Docs/scripts (README, TESTING, ROADMAP, THIRD_PARTY, protocol, installer) | 657 |
 
 The implementation is larger than the architecture's rough 1,200–2,200 LOC
