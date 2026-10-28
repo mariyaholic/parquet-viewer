@@ -7,6 +7,9 @@
 
 pub mod registration;
 
+#[cfg(any(windows, feature = "win-check", test))]
+mod copy_stream;
+
 #[cfg(any(windows, feature = "win-check"))]
 mod com;
 #[cfg(any(windows, feature = "win-check"))]

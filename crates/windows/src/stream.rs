@@ -80,8 +80,8 @@ pub unsafe fn stream_size(stream: *mut c_void) -> Result<u64, String> {
     Ok(stat.cbSize)
 }
 
-/// Bounded read adapter; the raw pointer is only dereferenced on the worker
-/// thread while the handler owns a reference to the stream.
+/// Read adapter used only on the owning COM apartment while the handler
+/// owns a reference to the stream.
 pub struct StreamReader {
     stream: *mut c_void,
 }

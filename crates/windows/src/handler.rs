@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Preview pane window and worker orchestration.
 //!
-//! `DoPreview` returns quickly; a background thread streams the host's
-//! `IStream` to the isolated worker and posts the rendered text into a read-only
+//! `DoPreview` snapshots the host stream on its owning apartment; a background thread sends the
+//! snapshot to the isolated worker and posts the rendered text into a read-only
 //! edit control. Replacing the selection kills the worker job and joins the
 //! thread.
 
@@ -16,6 +16,7 @@ use parquet_preview_client::WorkerClient;
 use parquet_preview_core::about::about_text;
 use parquet_preview_core::PreviewOptions;
 
+use crate::copy_stream::{snapshot, MAX_SNAPSHOT_BYTES};
 use crate::ffi;
 use crate::job::JobGuard;
 use crate::stream::{self, StreamReader};
@@ -40,8 +41,7 @@ pub struct HandlerState {
 }
 
 // The state is only touched from the COM apartment thread. The worker thread
-// receives copies of the window handles and a stream pointer whose reference
-// the handler keeps alive until the thread is joined.
+// receives only copies of the window handles and owned stream bytes.
 unsafe impl Send for HandlerState {}
 
 impl Default for HandlerState {
@@ -134,6 +134,16 @@ impl HandlerState {
                 return;
             }
         };
+        let mut reader = unsafe { StreamReader::new(stream) };
+        let bytes = match snapshot(&mut reader, size, MAX_SNAPSHOT_BYTES) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.set_text(&error_text(&format!(
+                    "cannot copy the supplied stream: {error}"
+                )));
+                return;
+            }
+        };
         let cancelled = Arc::new(AtomicBool::new(false));
         let worker_pid = Arc::new(AtomicU32::new(0));
         let job = Arc::new(Mutex::new(None));
@@ -142,7 +152,6 @@ impl HandlerState {
         if let Ok(mut current) = text_slot.lock() {
             *current = None;
         }
-        let stream = stream as usize;
         let cancel = cancelled.clone();
         let pid = worker_pid.clone();
         let job_slot = job.clone();
@@ -150,7 +159,7 @@ impl HandlerState {
         self.worker_pid = worker_pid;
         self.job = job;
         self.thread = Some(std::thread::spawn(move || {
-            let text = match run_preview(stream, size, &cancel, &pid, &job_slot) {
+            let text = match run_preview(bytes, &cancel, &pid, &job_slot) {
                 Ok(text) => text,
                 Err(error) => error_text(&error),
             };
@@ -268,8 +277,7 @@ impl Drop for HandlerState {
 }
 
 fn run_preview(
-    stream: usize,
-    size: u64,
+    bytes: Vec<u8>,
     cancel: &AtomicBool,
     pid_slot: &AtomicU32,
     job_slot: &Mutex<Option<JobGuard>>,
@@ -291,7 +299,8 @@ fn run_preview(
         return Err("preview was cancelled".to_string());
     }
 
-    let mut reader = unsafe { StreamReader::new(stream as *mut c_void) };
+    let size = bytes.len() as u64;
+    let mut reader = std::io::Cursor::new(bytes);
     client
         .open_stream(&mut reader, size)
         .map_err(|e| format!("cannot transfer the stream: {e}"))?;
@@ -427,7 +436,7 @@ fn create_window(
     // Subclass the edit so F1 opens the About screen.
     let context = Box::into_raw(Box::new(WindowContext { edit, text }));
     unsafe {
-        let old = ffi::SetWindowLongPtrW(edit, ffi::GWLP_WNDPROC, edit_proc as isize);
+        let old = ffi::SetWindowLongPtrW(edit, ffi::GWLP_WNDPROC, edit_proc as *const () as isize);
         ffi::SetWindowLongPtrW(edit, ffi::GWLP_USERDATA, old);
         ffi::SetWindowLongPtrW(hwnd, ffi::GWLP_USERDATA, context as isize);
     }
