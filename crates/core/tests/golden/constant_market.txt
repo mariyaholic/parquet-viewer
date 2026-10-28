@@ -1,0 +1,50 @@
+Parquet viewer and preview 0.1.0
+File: constant_market.parquet
+Size: 2900 bytes | footer metadata: 1946 bytes | format v1
+Created by: parquet-rs version 58.4.1
+
+Rows: 40 (exact after complete decoded scan)
+Row groups: 2 | leaf columns: 6
+  group 0: 20 rows, 406 compressed bytes, 6 columns
+  group 1: 20 rows, 404 compressed bytes, 6 columns
+
+Schema
+time : INT64 [required] logical=timestamp(ms,utc)
+open : DOUBLE [required]
+high : DOUBLE [required]
+low : DOUBLE [required]
+close : DOUBLE [required]
+spread : DOUBLE [required]
+
+Date and timestamp bounds
+  time (timestamp): complete | 2024-01-01T00:00:00Z to 2024-01-01T00:39:00Z | 2/2 row groups, 40/40 rows | exact bounds from a complete decoded scan
+
+Sample
+Rows 0-2 of 40 (3 returned, 6 columns); requested page of 3 row(s) returned
+  time | open | high | low | close | spread
+  2024-01-01T00:00:00Z | 1.1 | 1.1005 | 1.0995 | 1.1 | 0.001
+  2024-01-01T00:01:00Z | 1.1 | 1.1005 | 1.0995 | 1.1 | 0.001
+  2024-01-01T00:02:00Z | 1.1 | 1.1005 | 1.0995 | 1.1 | 0.001
+
+Full scan
+complete: 40 rows decoded, 2/2 row groups, 416 decoded bytes, 0 ms
+  complete decoded scan; counts and bounds are exact
+  Row count and date bounds are exact after the complete scan.
+
+Market diagnostics
+warning | first 40 of 40 rows (100.0%); not a full scan | 40 row(s) used
+Instrument: EURUSD
+Time: 2024-01-01T00:00:00Z to 2024-01-01T00:39:00Z | null rows: 0 | non-monotonic: 0 | duplicates: 0
+  [warning] Spread constancy: spread is constant at 0.001 across 40 rows; verify the source
+  [warning] Open versus previous close: open equals the previous close in 39 of 39 comparisons (1.0%)
+  [warning] Return-tail distribution: 1 warn(s): 100.0% of returns are exactly zero
+  [ok] Price plausibility: OHLC values are finite, positive and internally consistent
+  [ok] Time ordering: time is non-decreasing in file order
+  [ok] Reference-price baseline: max relative difference 0.0001 across 1 matched day(s)
+Baseline: EURUSD (baseline.csv) matched 1 of 1 data day(s), max relative diff 0.000091 vs 0.0200
+  Note: Heuristics are warnings, not proof of fraud, authenticity or integrity.
+  Note: Not financial advice. A baseline only compares the supplied dated prices.
+  Note: Field mapping: time=time, open=open, high=high, low=low, close=close, spread=spread
+
+Made by Maria - free and open source (Apache-2.0).
+Read-only. Not affiliated with MetaQuotes; MetaTrader 5 and MT5 are trademarks of MetaQuotes Ltd.

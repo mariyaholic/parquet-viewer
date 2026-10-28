@@ -1,0 +1,44 @@
+Parquet viewer and preview 0.1.0
+File: nested.parquet
+Size: 2395 bytes | footer metadata: 1791 bytes | format v1
+Created by: parquet-rs version 58.4.1
+
+Rows: 6 (metadata-derived from the footer; not verified by a full scan)
+Row groups: 1 | leaf columns: 8
+  group 0: 6 rows, 499 compressed bytes, 8 columns
+
+Schema
+id : INT32 [required]
+payload : group [optional]
+  kind : BYTE_ARRAY [optional] logical=string
+  flags : group [optional] logical=list
+    list : group [required]
+      item : BOOLEAN [optional]
+amount : INT64(12,2) [optional] logical=decimal(12,2)
+blob : BYTE_ARRAY [optional]
+day : INT32 [optional] logical=date
+local_ts : INT64 [optional] logical=timestamp(us)
+nothing : INT32 [optional] logical=unknown
+
+Date and timestamp bounds
+  day (date): complete | 2024-01-01 to 2024-01-08 | 1/1 row groups, 6/6 rows | all row groups have trustworthy, compatible statistics
+  local_ts (timestamp): complete | 1969-12-31T23:59:58.5 (unadjusted) to 2024-01-01T00:00:00 (unadjusted) | 1/1 row groups, 6/6 rows | all row groups have trustworthy, compatible statistics
+
+Sample
+Rows 0-5 of 6 (6 returned, 7 columns); requested page of 6 row(s) returned
+  id | payload | amount | blob | day | local_ts | nothing
+  0 | {kind: alpha, flags: [true, false]} | 123.45 | <4 bytes: dead beef> | 2024-01-01 | 1970-01-01T00:00:00 | null
+  1 | null | null | null | null | 1970-01-01T00:00:01.5 | null
+  2 | {kind: beta, flags: [true, false]} | -9.99 | <3 bytes: 0001 02> | 2024-01-02 | null | null
+  3 | {kind: gamma, flags: []} | 1000.00 | <1 bytes: ff> | 2024-01-04 | 1969-12-31T23:59:58.5 | null
+  4 | {kind: null, flags: [true, false]} | 0.00 | null | null | 2024-01-01T00:00:00 | null
+  5 | {kind: delta, flags: []} | null | <2 bytes: 4142> | 2024-01-08 | null | null
+
+Full scan
+Not run. Footer counts and statistics remain metadata-derived, not verified.
+
+Market diagnostics
+Disabled. Configure an explicit field mapping in the optional local settings file to enable heuristics.
+
+Made by Maria - free and open source (Apache-2.0).
+Read-only. Not affiliated with MetaQuotes; MetaTrader 5 and MT5 are trademarks of MetaQuotes Ltd.

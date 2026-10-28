@@ -736,16 +736,14 @@ fn list_value(
     let Some(list) = array.as_any().downcast_ref::<ListArray>() else {
         return CellValue::Unsupported("list".to_string());
     };
-    let values = list.value(row);
     nested_items(
-        values.as_ref(),
+        list.values().as_ref(),
         list.value_offsets(),
         row,
         depth,
         max_depth,
         max_items,
         max_chars,
-        false,
     )
 }
 
@@ -761,14 +759,13 @@ fn large_list_value(
     let Some(list) = array.as_any().downcast_ref::<LargeListArray>() else {
         return CellValue::Unsupported("large list".to_string());
     };
-    let values = list.value(row);
     let offsets = list.value_offsets();
-    let start = offsets[row] as usize;
-    let len = (offsets[row + 1] - offsets[row]) as usize;
+    let start = usize::try_from(offsets[row]).unwrap_or(0);
+    let end = usize::try_from(offsets[row + 1]).unwrap_or(start);
     grid_items(
-        values.as_ref(),
+        list.values().as_ref(),
         start,
-        len,
+        end.saturating_sub(start),
         depth,
         max_depth,
         max_items,
@@ -810,7 +807,6 @@ fn nested_items(
     max_depth: usize,
     max_items: usize,
     max_chars: usize,
-    _large: bool,
 ) -> CellValue {
     let start = offsets[row] as usize;
     let len = (offsets[row + 1] - offsets[row]) as usize;

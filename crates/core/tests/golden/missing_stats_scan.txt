@@ -1,0 +1,34 @@
+Parquet viewer and preview 0.1.0
+File: missing_stats.parquet
+Size: 1228 bytes | footer metadata: 645 bytes | format v1
+Created by: parquet-rs version 58.4.1
+
+Rows: 30 (exact after complete decoded scan)
+Row groups: 2 | leaf columns: 2
+  group 0: 15 rows, 264 compressed bytes, 2 columns
+  group 1: 15 rows, 263 compressed bytes, 2 columns
+
+Schema
+ts : INT64 [required] logical=timestamp(ms,utc)
+value : DOUBLE [optional]
+
+Date and timestamp bounds
+  ts (timestamp): complete | 2024-01-01T00:00:00Z to 2024-01-01T00:29:00Z | 2/2 row groups, 30/30 rows | exact bounds from a complete decoded scan
+
+Sample
+Rows 0-2 of 30 (3 returned, 2 columns); requested page of 3 row(s) returned
+  ts | value
+  2024-01-01T00:00:00Z | 0.5
+  2024-01-01T00:01:00Z | 1.5
+  2024-01-01T00:02:00Z | 2.5
+
+Full scan
+complete: 30 rows decoded, 2/2 row groups, 336 decoded bytes, 0 ms
+  complete decoded scan; counts and bounds are exact
+  Row count and date bounds are exact after the complete scan.
+
+Market diagnostics
+Disabled. Configure an explicit field mapping in the optional local settings file to enable heuristics.
+
+Made by Maria - free and open source (Apache-2.0).
+Read-only. Not affiliated with MetaQuotes; MetaTrader 5 and MT5 are trademarks of MetaQuotes Ltd.

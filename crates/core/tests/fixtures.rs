@@ -161,6 +161,16 @@ fn nested_values_render_safely() {
     let rendered = sample.rows[0].values[1].render();
     assert!(rendered.contains("kind: alpha"), "{rendered}");
     assert!(rendered.contains("flags: [true, false]"), "{rendered}");
+    assert_eq!(sample.rows[3].values[1].render(), "{kind: gamma, flags: []}");
+
+    let trades = open(fixtures::TRADES).sample(7, 1).unwrap();
+    assert_eq!(
+        trades.rows[0].values[9],
+        CellValue::List {
+            items: vec![CellValue::Text("fx".into()), CellValue::Text("sim".into())],
+            omitted: 0,
+        }
+    );
 }
 
 #[test]

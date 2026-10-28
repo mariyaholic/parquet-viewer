@@ -516,6 +516,7 @@ name = "parquet-preview-cli"
 version = "0.1.0"
 dependencies = [
  "parquet-preview-core",
+ "serde_json",
 ]
 
 [[package]]
@@ -528,6 +529,7 @@ dependencies = [
  "parquet",
  "parquet-preview-fixtures",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 
@@ -545,6 +547,7 @@ dependencies = [
 name = "parquet-preview-protocol"
 version = "0.1.0"
 dependencies = [
+ "parquet-preview-core",
  "serde",
  "serde_json",
  "thiserror",
@@ -564,6 +567,7 @@ name = "parquet-preview-worker"
 version = "0.1.0"
 dependencies = [
  "parquet-preview-core",
+ "parquet-preview-fixtures",
  "parquet-preview-protocol",
  "serde",
  "serde_json",

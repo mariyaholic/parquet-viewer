@@ -4,12 +4,17 @@
 //! The core is platform independent. The Windows COM handler lives in a
 //! separate crate so this crate builds and tests on Linux.
 
-pub mod error;
-pub mod display;
+pub mod about;
+pub mod baseline;
 pub mod date_bounds;
+pub mod display;
+pub mod error;
 pub mod footer;
 pub mod limits;
+pub mod market;
+pub mod report;
 pub mod sample;
+pub mod settings;
 pub mod scan;
 pub mod session;
 pub mod source;
@@ -22,6 +27,8 @@ pub use footer::{parse_footer, FooterInfo};
 pub use limits::Limits;
 pub use sample::{CellValue, SampleReport, SampleStatus};
 pub use scan::{CancelToken, ScanReport, ScanStatus};
+pub use report::{PreviewOptions, PreviewReport};
+pub use settings::Settings;
 pub use session::Session;
 pub use source::{BoxSource, ReadSeek, SharedSource};
 pub use summary::{

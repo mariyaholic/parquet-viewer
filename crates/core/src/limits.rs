@@ -44,6 +44,10 @@ pub struct Limits {
     pub max_nested_items: usize,
     /// Maximum recursion depth when rendering nested values.
     pub max_nested_depth: usize,
+    /// Rows decoded for one market diagnostic request.
+    pub max_diagnostic_rows: usize,
+    /// Wall-clock budget for one market diagnostic request.
+    pub max_diagnostic_millis: u64,
     /// Largest reference-price CSV accepted.
     pub max_baseline_bytes: u64,
 }
@@ -68,6 +72,8 @@ impl Default for Limits {
             max_cell_chars: 512,
             max_nested_items: 20,
             max_nested_depth: 3,
+            max_diagnostic_rows: 50_000,
+            max_diagnostic_millis: 10_000,
             max_baseline_bytes: 16 * 1024 * 1024,
         }
     }
@@ -102,6 +108,10 @@ impl Limits {
             max_cell_chars: self.max_cell_chars.min(other.max_cell_chars),
             max_nested_items: self.max_nested_items.min(other.max_nested_items),
             max_nested_depth: self.max_nested_depth.min(other.max_nested_depth),
+            max_diagnostic_rows: self.max_diagnostic_rows.min(other.max_diagnostic_rows),
+            max_diagnostic_millis: self
+                .max_diagnostic_millis
+                .min(other.max_diagnostic_millis),
             max_baseline_bytes: self.max_baseline_bytes.min(other.max_baseline_bytes),
         }
     }
@@ -119,7 +129,9 @@ impl Limits {
             || self.max_scan_compressed_bytes == 0
             || self.max_cell_chars == 0
             || self.max_nested_items == 0
-            || self.max_nested_depth == 0;
+            || self.max_nested_depth == 0
+            || self.max_diagnostic_rows == 0
+            || self.max_diagnostic_millis == 0;
         if invalid {
             return Err(crate::PreviewError::Limit(
                 "invalid limit configuration".into(),

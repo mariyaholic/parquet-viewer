@@ -1,0 +1,47 @@
+Parquet viewer and preview 0.1.0
+File: trades.parquet
+Size: 9914 bytes | footer metadata: 4661 bytes | format v1
+Created by: parquet-rs version 58.4.1
+
+Rows: 60 (metadata-derived from the footer; not verified by a full scan)
+Row groups: 3 | leaf columns: 11
+  group 0: 20 rows, 1614 compressed bytes, 11 columns
+  group 1: 20 rows, 1617 compressed bytes, 11 columns
+  group 2: 20 rows, 1617 compressed bytes, 11 columns
+
+Schema
+ts : INT64 [optional] logical=timestamp(ms,utc)
+symbol : BYTE_ARRAY [optional] logical=string
+open : DOUBLE [required]
+high : DOUBLE [required]
+low : DOUBLE [required]
+close : DOUBLE [required]
+volume : INT64 [required]
+spread : DOUBLE [optional]
+meta : group [optional]
+  venue : BYTE_ARRAY [optional] logical=string
+  seq : INT64 [required]
+tags : group [optional] logical=list
+  list : group [required]
+    item : BYTE_ARRAY [optional] logical=string
+
+Date and timestamp bounds
+  ts (timestamp): complete | 2024-01-01T00:00:00Z to 2024-01-01T04:55:00Z | 3/3 row groups, 60/60 rows | all row groups have trustworthy, compatible statistics
+
+Sample
+Rows 0-4 of 60 (5 returned, 10 columns); requested page of 5 row(s) returned
+  ts | symbol | open | high | low | close | volume | spread | meta | tags
+  2024-01-01T00:00:00Z | EURUSD | 1.1 | 1.1004 | 1.0997000000000001 | 1.1001 | 100 | 0.0002 | {venue: SIM, seq: 0} | [fx, sim]
+  2024-01-01T00:05:00Z | EURUSD | 1.1001 | 1.1005 | 1.0998 | 1.1002 | 101 | 0.00021 | {venue: SIM, seq: 1} | []
+  2024-01-01T00:10:00Z | EURUSD | 1.1002 | 1.1006 | 1.0999 | 1.1003 | 102 | 0.00022 | {venue: SIM, seq: 2} | []
+  2024-01-01T00:15:00Z | EURUSD | 1.1003 | 1.1007 | 1.1 | 1.1004 | 103 | 0.00023 | {venue: SIM, seq: 3} | []
+  2024-01-01T00:20:00Z | EURUSD | 1.1004 | 1.1008 | 1.1001 | 1.1005 | 104 | 0.00024 | {venue: SIM, seq: 4} | []
+
+Full scan
+Not run. Footer counts and statistics remain metadata-derived, not verified.
+
+Market diagnostics
+Disabled. Configure an explicit field mapping in the optional local settings file to enable heuristics.
+
+Made by Maria - free and open source (Apache-2.0).
+Read-only. Not affiliated with MetaQuotes; MetaTrader 5 and MT5 are trademarks of MetaQuotes Ltd.
