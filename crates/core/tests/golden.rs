@@ -27,9 +27,31 @@ fn check(name: &str, actual: &str) {
         std::fs::write(&path, actual).unwrap();
         return;
     }
-    let expected = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}; run with UPDATE_GOLDEN=1", path.display()));
-    assert_eq!(actual, expected, "golden mismatch: {}", path.display());
+    let expected = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+        panic!(
+            "cannot read {}: {e}; run with UPDATE_GOLDEN=1",
+            path.display()
+        )
+    });
+    // Elapsed time is measured at runtime and is not stable across runs.
+    fn normalize(text: &str) -> String {
+        text.lines()
+            .map(|line| {
+                if line.starts_with("complete:") && line.ends_with(" ms") {
+                    if let Some((prefix, _)) = line.rsplit_once(", ") {
+                        return format!("{prefix}, <elapsed> ms\n");
+                    }
+                }
+                format!("{line}\n")
+            })
+            .collect()
+    }
+    assert_eq!(
+        normalize(actual),
+        normalize(&expected),
+        "golden mismatch: {}",
+        path.display()
+    );
 }
 
 #[test]
@@ -56,15 +78,17 @@ fn nested_sample_golden() {
 
 #[test]
 fn missing_stats_scan_golden() {
-    let session =
-        Session::open_path(fixture(fixtures::MISSING_STATS), &Limits::default()).unwrap();
+    let session = Session::open_path(fixture(fixtures::MISSING_STATS), &Limits::default()).unwrap();
     let options = PreviewOptions {
         display_name: Some("missing_stats.parquet".into()),
         sample_limit: 3,
         scan: true,
         ..Default::default()
     };
-    check("missing_stats_scan.txt", &session.render_preview(&options).unwrap());
+    check(
+        "missing_stats_scan.txt",
+        &session.render_preview(&options).unwrap(),
+    );
 }
 
 #[test]
