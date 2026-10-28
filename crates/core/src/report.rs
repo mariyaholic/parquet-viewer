@@ -307,6 +307,10 @@ pub fn render(report: &PreviewReport) -> String {
     budget.blank(&mut out);
     budget.line(
         &mut out,
+        "Press F1 in the preview pane for the About screen.",
+    );
+    budget.line(
+        &mut out,
         &format!(
             "{} - {}.",
             report.credit,

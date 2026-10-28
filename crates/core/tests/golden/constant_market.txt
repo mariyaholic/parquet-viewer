@@ -47,5 +47,6 @@ Baseline: EURUSD (baseline.csv, licence synthetic test baseline) matched 1 of 1 
   Note: Not financial advice. A baseline only compares the supplied dated prices.
   Note: Field mapping: time=time, open=open, high=high, low=low, close=close, spread=spread
 
+Press F1 in the preview pane for the About screen.
 Made by Maria - free and open source (Apache-2.0).
 Read-only. Not affiliated with MetaQuotes; MetaTrader 5 and MT5 are trademarks of MetaQuotes Ltd.

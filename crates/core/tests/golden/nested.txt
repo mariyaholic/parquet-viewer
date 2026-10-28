@@ -40,5 +40,6 @@ Not run. Footer counts and statistics remain metadata-derived, not verified.
 Market diagnostics
 Disabled. Configure an explicit field mapping in the optional local settings file to enable heuristics.
 
+Press F1 in the preview pane for the About screen.
 Made by Maria - free and open source (Apache-2.0).
 Read-only. Not affiliated with MetaQuotes; MetaTrader 5 and MT5 are trademarks of MetaQuotes Ltd.
