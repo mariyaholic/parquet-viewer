@@ -1,0 +1,18 @@
+[package]
+name = "parquet-preview-client"
+description = "Spawns and drives the isolated preview worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+parquet-preview-core = { path = "../core" }
+parquet-preview-protocol = { path = "../protocol" }
+thiserror.workspace = true
+
+[dev-dependencies]
+parquet-preview-fixtures = { path = "../fixtures" }

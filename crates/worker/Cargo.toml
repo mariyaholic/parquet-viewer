@@ -17,3 +17,4 @@ serde_json.workspace = true
 
 [dev-dependencies]
 parquet-preview-fixtures = { path = "../fixtures" }
+parquet-preview-client = { path = "../client" }

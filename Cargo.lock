@@ -520,6 +520,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "parquet-preview-client"
+version = "0.1.0"
+dependencies = [
+ "parquet-preview-core",
+ "parquet-preview-fixtures",
+ "parquet-preview-protocol",
+ "thiserror",
+]
+
+[[package]]
 name = "parquet-preview-core"
 version = "0.1.0"
 dependencies = [
@@ -557,8 +567,10 @@ dependencies = [
 name = "parquet-preview-windows"
 version = "0.1.0"
 dependencies = [
+ "parquet-preview-client",
  "parquet-preview-core",
  "parquet-preview-protocol",
+ "serde",
  "serde_json",
 ]
 
@@ -566,6 +578,7 @@ dependencies = [
 name = "parquet-preview-worker"
 version = "0.1.0"
 dependencies = [
+ "parquet-preview-client",
  "parquet-preview-core",
  "parquet-preview-fixtures",
  "parquet-preview-protocol",

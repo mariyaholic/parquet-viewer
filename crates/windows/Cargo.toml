@@ -1,0 +1,25 @@
+[package]
+name = "parquet-preview-windows"
+description = "Windows COM preview handler and registration for Parquet files"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+parquet-preview-core = { path = "../core" }
+parquet-preview-protocol = { path = "../protocol" }
+parquet-preview-client = { path = "../client" }
+serde.workspace = true
+serde_json.workspace = true
+
+[features]
+# Type-check the Windows FFI surface on a non-Windows host. This does not
+# produce a working DLL and is only used by `cargo check --features win-check`.
+win-check = []

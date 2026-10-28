@@ -5,6 +5,7 @@ members = [
     "crates/protocol",
     "crates/worker",
     "crates/cli",
+    "crates/client",
     "crates/windows",
     "crates/fixtures",
 ]
