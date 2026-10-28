@@ -132,6 +132,7 @@ mod tests {
         let mut text = String::new();
         file.read_to_string(&mut text).unwrap();
         assert_eq!(text, "hello world");
+        drop(file); // Windows cannot remove the spool while this handle is open.
         drop(spool);
         assert!(!path.exists());
     }
