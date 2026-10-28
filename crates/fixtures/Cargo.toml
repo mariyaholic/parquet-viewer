@@ -1,0 +1,24 @@
+[package]
+name = "parquet-preview-fixtures"
+description = "Fixture generator and shared test support"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+parquet.workspace = true
+arrow-array.workspace = true
+arrow-buffer.workspace = true
+arrow-schema.workspace = true
+
+[lib]
+name = "parquet_preview_fixtures"
+path = "src/lib.rs"
+
+[[bin]]
+name = "parquet-preview-fixtures"
+path = "src/main.rs"

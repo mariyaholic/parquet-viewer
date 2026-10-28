@@ -1,0 +1,21 @@
+[package]
+name = "parquet-preview-core"
+description = "Read-only Parquet inspection core for the Explorer preview handler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+parquet.workspace = true
+arrow-array.workspace = true
+arrow-schema.workspace = true
+bytes.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+parquet-preview-fixtures = { path = "../fixtures" }
