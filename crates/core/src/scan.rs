@@ -163,13 +163,13 @@ impl Session {
         let mut message = "complete decoded scan; counts and bounds are exact".to_string();
         let mut completed_groups = 0usize;
         let mut current_group = 0usize;
-        let mut groups_rows = selected
+        let mut group_remaining = selected
             .iter()
             .map(|index| {
                 u64::try_from(metadata.row_groups()[*index].num_rows()).unwrap_or(0)
             })
+            .filter(|rows| *rows > 0)
             .collect::<Vec<_>>();
-        let mut group_remaining = groups_rows.clone();
 
         for batch in reader {
             if cancel.is_cancelled() {
@@ -206,6 +206,10 @@ impl Session {
             // batches in row-group order, so consume the remaining row counts.
             let mut rows = batch.num_rows();
             while rows > 0 && current_group < group_remaining.len() {
+                if group_remaining[current_group] == 0 {
+                    current_group += 1;
+                    continue;
+                }
                 let take = rows.min(group_remaining[current_group] as usize);
                 group_remaining[current_group] -= take as u64;
                 rows -= take;
@@ -308,7 +312,6 @@ impl Session {
             }
         }
 
-        groups_rows.clear();
         Ok(ScanReport {
             status,
             rows_scanned,

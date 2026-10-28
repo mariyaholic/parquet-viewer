@@ -26,6 +26,7 @@ Options:
   --diagnose         Enable optional market heuristics
   --profile <file>   Market profile JSON (otherwise from settings)
   --baseline <file>  Dated reference-price CSV
+  --baseline-licence <text>  Licence/terms for that baseline (required)
   --settings <file>  Settings JSON (otherwise the per-user default)
   --json             Print the structured report instead of text
   --about            Show About and licence information
@@ -55,6 +56,7 @@ fn run() -> std::result::Result<ExitCode, String> {
     let mut diagnose = false;
     let mut profile_path: Option<PathBuf> = None;
     let mut baseline_path: Option<PathBuf> = None;
+    let mut baseline_licence: Option<String> = None;
     let mut settings_path: Option<PathBuf> = None;
     let mut json = false;
 
@@ -80,6 +82,9 @@ fn run() -> std::result::Result<ExitCode, String> {
             "--profile" => profile_path = Some(PathBuf::from(required(args.next(), "--profile")?)),
             "--baseline" => {
                 baseline_path = Some(PathBuf::from(required(args.next(), "--baseline")?))
+            }
+            "--baseline-licence" => {
+                baseline_licence = Some(required(args.next(), "--baseline-licence")?)
             }
             "--settings" => {
                 settings_path = Some(PathBuf::from(required(args.next(), "--settings")?))
@@ -129,6 +134,7 @@ fn run() -> std::result::Result<ExitCode, String> {
                 .market_profile
                 .as_ref()
                 .and_then(|p| p.instrument.clone()),
+            licence: baseline_licence.clone(),
         });
     }
     if diagnose {

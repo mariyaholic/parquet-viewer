@@ -175,11 +175,7 @@ fn evaluate_column(
             missing += 1;
             continue;
         };
-        let trustworthy = stats.min_is_exact()
-            && stats.max_is_exact()
-            && !stats.is_min_max_deprecated()
-            && group_min <= group_max;
-        if !trustworthy {
+        if !stats_are_trustworthy(stats, group_min, group_max) {
             untrusted += 1;
             continue;
         }
@@ -237,6 +233,13 @@ fn evaluate_column(
     }
 }
 
+fn stats_are_trustworthy(stats: &Statistics, min: i64, max: i64) -> bool {
+    stats.min_is_exact()
+        && stats.max_is_exact()
+        && !stats.is_min_max_deprecated()
+        && min <= max
+}
+
 /// Build an exact bounds entry from a complete decoded scan.
 pub fn exact_bounds(
     column: &DateColumn,
@@ -289,6 +292,44 @@ mod tests {
             .format(0),
             "1970-01-01T00:00:00 (unadjusted)"
         );
+    }
+
+    #[test]
+    fn misleading_statistics_are_not_trusted() {
+        use parquet::file::statistics::{Statistics, ValueStatistics};
+
+        let inverted = Statistics::Int64(ValueStatistics::new(
+            Some(5),
+            Some(1),
+            None,
+            None,
+            false,
+        ));
+        assert!(!stats_are_trustworthy(&inverted, 5, 1));
+
+        let truncated = Statistics::Int64(
+            ValueStatistics::new(Some(1), Some(5), None, None, false)
+                .with_min_is_exact(false),
+        );
+        assert!(!stats_are_trustworthy(&truncated, 1, 5));
+
+        let deprecated = Statistics::Int64(ValueStatistics::new(
+            Some(1),
+            Some(5),
+            None,
+            None,
+            true,
+        ));
+        assert!(!stats_are_trustworthy(&deprecated, 1, 5));
+
+        let good = Statistics::Int64(ValueStatistics::new(
+            Some(1),
+            Some(5),
+            None,
+            None,
+            false,
+        ));
+        assert!(stats_are_trustworthy(&good, 1, 5));
     }
 
     #[test]

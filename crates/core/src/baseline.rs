@@ -22,11 +22,15 @@ pub struct BaselineSpec {
     pub path: String,
     /// Instrument this file is licensed/valid for.
     pub instrument: Option<String>,
+    /// Licence identifier/terms under which this baseline is used.
+    #[serde(default)]
+    pub licence: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ReferenceBaseline {
     pub instrument: String,
+    pub licence: String,
     pub source_label: String,
     pub points: BTreeMap<i64, f64>,
     pub duplicate_dates_ignored: usize,
@@ -61,6 +65,20 @@ impl ReferenceBaseline {
                         .to_string(),
                 )
             })?;
+        let licence = spec
+            .licence
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                PreviewError::Baseline(
+                    "a baseline needs an explicit licence identifier; an unlicensed baseline is not compared"
+                        .to_string(),
+                )
+            })?
+            .chars()
+            .take(160)
+            .collect::<String>();
 
         let path = Path::new(&spec.path);
         let source_label = path
@@ -82,10 +100,15 @@ impl ReferenceBaseline {
         let text = std::str::from_utf8(&bytes)
             .map_err(|_| PreviewError::Baseline("baseline is not UTF-8 text".to_string()))?;
         let text = text.trim_start_matches('\u{FEFF}');
-        Self::parse_csv(text, &instrument, source_label)
+        Self::parse_csv(text, &instrument, &licence, source_label)
     }
 
-    fn parse_csv(text: &str, instrument: &str, source_label: String) -> Result<Self> {
+    fn parse_csv(
+        text: &str,
+        instrument: &str,
+        licence: &str,
+        source_label: String,
+    ) -> Result<Self> {
         let mut lines = text.lines().enumerate().filter_map(|(index, line)| {
             let trimmed = line.trim();
             if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -118,7 +141,7 @@ impl ReferenceBaseline {
         let mut points = BTreeMap::new();
         let mut skipped = 0usize;
         let mut duplicates = 0usize;
-        for (line, row) in lines {
+        for (_line, row) in lines {
             let fields = split_csv(row);
             if fields.len() <= date_index.max(price_index) {
                 skipped += 1;
@@ -148,7 +171,6 @@ impl ReferenceBaseline {
             if points.insert(day, price).is_some() {
                 duplicates += 1;
             }
-            let _ = line;
         }
         if points.is_empty() {
             return Err(PreviewError::Baseline(
@@ -157,6 +179,7 @@ impl ReferenceBaseline {
         }
         Ok(Self {
             instrument: instrument.to_string(),
+            licence: licence.to_string(),
             source_label,
             points,
             duplicate_dates_ignored: duplicates,
@@ -217,7 +240,7 @@ mod tests {
     #[test]
     fn parses_instrument_specific_csv() {
         let csv = "instrument,date,price\nEURUSD,2024-01-01,1.10\nGBPUSD,2024-01-01,1.27\nEURUSD,2024-01-02,1.11\n";
-        let baseline = ReferenceBaseline::parse_csv(csv, "EURUSD", "test.csv".into()).unwrap();
+        let baseline = ReferenceBaseline::parse_csv(csv, "EURUSD", "test", "test.csv".into()).unwrap();
         assert_eq!(baseline.points.len(), 2);
         assert_eq!(baseline.points.get(&19_723), Some(&1.10));
         assert_eq!(baseline.range_label(), "2024-01-01 to 2024-01-02");
@@ -225,25 +248,38 @@ mod tests {
 
     #[test]
     fn rejects_missing_columns_and_bad_prices() {
-        assert!(ReferenceBaseline::parse_csv("date,value\n", "X", "t".into()).is_err());
+        assert!(ReferenceBaseline::parse_csv("date,value\n", "X", "test", "t".into()).is_err());
         assert!(ReferenceBaseline::parse_csv(
             "date,price\n2024-01-01,\n",
             "X",
+            "test",
             "t".into()
         )
         .is_err());
         assert!(ReferenceBaseline::parse_csv(
             "date,price\n2024-01-01,-1\n",
             "X",
+            "test",
             "t".into()
         )
         .is_err());
     }
 
     #[test]
+    fn missing_licence_blocks_a_base_line() {
+        let spec = BaselineSpec {
+            path: "unused.csv".into(),
+            instrument: Some("EURUSD".into()),
+            licence: None,
+        };
+        let error = ReferenceBaseline::load(&spec, None, 1024).unwrap_err();
+        assert!(error.to_string().contains("licence"));
+    }
+
+    #[test]
     fn last_duplicate_wins_and_is_counted() {
         let csv = "date,price\n2024-01-01,1.0\n2024-01-01,1.2\n";
-        let baseline = ReferenceBaseline::parse_csv(csv, "X", "t".into()).unwrap();
+        let baseline = ReferenceBaseline::parse_csv(csv, "X", "test", "t".into()).unwrap();
         assert_eq!(baseline.points[&19_723], 1.2);
         assert_eq!(baseline.duplicate_dates_ignored, 1);
     }

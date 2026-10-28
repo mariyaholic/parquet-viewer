@@ -14,10 +14,8 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 parquet-preview-core = { path = "../core" }
-parquet-preview-protocol = { path = "../protocol" }
 parquet-preview-client = { path = "../client" }
 serde.workspace = true
-serde_json.workspace = true
 
 [features]
 # Type-check the Windows FFI surface on a non-Windows host. This does not

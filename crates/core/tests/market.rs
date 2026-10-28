@@ -122,6 +122,7 @@ fn dated_baseline_compares_overlapping_days() {
     let spec = BaselineSpec {
         path: fixture_dir().join("baseline.csv").to_string_lossy().to_string(),
         instrument: Some("EURUSD".into()),
+        licence: Some("synthetic test baseline".into()),
     };
     let report = session
         .diagnose(&profile(), Some(&spec), 1000, &CancelToken::new())
@@ -140,12 +141,37 @@ fn missing_baseline_file_is_reported_without_failing_preview() {
     let spec = BaselineSpec {
         path: fixture_dir().join("does-not-exist.csv").to_string_lossy().to_string(),
         instrument: Some("EURUSD".into()),
+        licence: Some("synthetic test baseline".into()),
     };
     let report = session
         .diagnose(&profile(), Some(&spec), 1000, &CancelToken::new())
         .unwrap();
     assert_eq!(check(&report, "baseline").status, CheckStatus::Unavailable);
     assert!(check(&report, "baseline").summary.contains("baseline"));
+}
+
+#[test]
+fn baseline_without_overlapping_dates_is_unavailable() {
+    let dir = std::env::temp_dir().join(format!(
+        "parquet-preview-baseline-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("future.csv");
+    std::fs::write(&path, "date,price\n2030-01-01,1.2\n").unwrap();
+    let session = open(fixtures::TRADES, &Limits::default());
+    let spec = BaselineSpec {
+        path: path.to_string_lossy().to_string(),
+        instrument: Some("EURUSD".into()),
+        licence: Some("synthetic test baseline".into()),
+    };
+    let report = session
+        .diagnose(&profile(), Some(&spec), 1000, &CancelToken::new())
+        .unwrap();
+    let baseline = report.baseline.unwrap();
+    assert_eq!(baseline.status, CheckStatus::Unavailable);
+    assert!(baseline.summary.contains("no overlapping dates"));
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]

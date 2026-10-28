@@ -147,6 +147,7 @@ pub struct TimeRange {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BaselineComparison {
     pub instrument: String,
+    pub licence: String,
     pub source: String,
     pub status: CheckStatus,
     pub matched_days: usize,
@@ -984,7 +985,6 @@ fn return_tail_check(rows: &[Row], thresholds: &MarketThresholds) -> DiagnosticC
 
 fn price_plausibility_check(rows: &[Row], thresholds: &MarketThresholds) -> DiagnosticCheck {
     let mut invalid = 0usize;
-    let mut examples = 0usize;
     for row in rows {
         let mut bad = false;
         for value in [row.open, row.high, row.low, row.close].into_iter().flatten() {
@@ -1010,9 +1010,6 @@ fn price_plausibility_check(rows: &[Row], thresholds: &MarketThresholds) -> Diag
         }
         if bad {
             invalid += 1;
-            if examples < 3 {
-                examples += 1;
-            }
         }
     }
     let ratio = invalid as f64 / rows.len().max(1) as f64;
@@ -1134,6 +1131,7 @@ fn compare_baseline(
     };
     BaselineComparison {
         instrument: reference.instrument.clone(),
+        licence: reference.licence.clone(),
         source: reference.source_label.clone(),
         status: status_and_summary.0,
         matched_days: matched,
@@ -1156,6 +1154,7 @@ fn baseline_metrics(comparison: &BaselineComparison) -> BTreeMap<String, String>
             .unwrap_or_else(|| "n/a".to_string()),
     );
     metrics.insert("threshold".to_string(), comparison.threshold.clone());
+    metrics.insert("licence".to_string(), comparison.licence.clone());
     metrics
 }
 

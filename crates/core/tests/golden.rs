@@ -89,6 +89,7 @@ fn constant_market_diagnostics_golden() {
         baseline: Some(BaselineSpec {
             path: fixture("baseline.csv").to_string_lossy().to_string(),
             instrument: Some("EURUSD".into()),
+            licence: Some("synthetic test baseline".into()),
         }),
         diagnostic_rows: 1000,
         ..Default::default()

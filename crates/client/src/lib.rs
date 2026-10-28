@@ -106,6 +106,15 @@ impl WorkerClient {
                         ),
                     });
                 }
+                if worker_version != env!("CARGO_PKG_VERSION") {
+                    return Err(ClientError::Worker {
+                        code: ErrorCode::ProtocolMismatch,
+                        message: format!(
+                            "worker version {worker_version} does not match client version {}",
+                            env!("CARGO_PKG_VERSION")
+                        ),
+                    });
+                }
                 client.welcome = Welcome {
                     worker_version,
                     protocol_version,

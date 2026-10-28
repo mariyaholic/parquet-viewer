@@ -512,9 +512,10 @@ fn render_market(out: &mut String, report: &PreviewReport, budget: &mut TextBudg
         budget.line(
             out,
             &format!(
-                "Baseline: {} ({}) matched {} of {} data day(s), max relative diff {} vs {}",
+                "Baseline: {} ({}, licence {}) matched {} of {} data day(s), max relative diff {} vs {}",
                 baseline.instrument,
                 baseline.source,
+                baseline.licence,
                 baseline.matched_days,
                 baseline.data_days,
                 baseline.max_relative_diff.as_deref().unwrap_or("n/a"),

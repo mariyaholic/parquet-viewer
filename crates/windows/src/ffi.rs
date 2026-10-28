@@ -37,7 +37,8 @@ pub const E_FAIL: HRESULT = 0x8000_4005u32 as HRESULT;
 pub const CLASS_E_NOAGGREGATION: HRESULT = 0x8004_0110u32 as HRESULT;
 pub const CLASS_E_CLASSNOTAVAILABLE: HRESULT = 0x8004_0111u32 as HRESULT;
 
-pub const HKEY_CURRENT_USER: HKEY = 0x8000_0001u32 as HKEY;
+// Predefined registry handles are sign-extended pseudo-handles on 64-bit.
+pub const HKEY_CURRENT_USER: HKEY = 0x8000_0001u32 as i32 as isize;
 pub const REG_SZ: u32 = 1;
 pub const RRF_RT_REG_SZ: u32 = 0x0000_0002;
 pub const ERROR_SUCCESS: LSTATUS = 0;

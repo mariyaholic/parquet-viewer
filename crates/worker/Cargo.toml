@@ -12,7 +12,6 @@ publish = false
 [dependencies]
 parquet-preview-core = { path = "../core" }
 parquet-preview-protocol = { path = "../protocol" }
-serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]

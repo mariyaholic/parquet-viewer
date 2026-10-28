@@ -41,7 +41,7 @@ Time: 2024-01-01T00:00:00Z to 2024-01-01T00:39:00Z | null rows: 0 | non-monotoni
   [ok] Price plausibility: OHLC values are finite, positive and internally consistent
   [ok] Time ordering: time is non-decreasing in file order
   [ok] Reference-price baseline: max relative difference 0.0001 across 1 matched day(s)
-Baseline: EURUSD (baseline.csv) matched 1 of 1 data day(s), max relative diff 0.000091 vs 0.0200
+Baseline: EURUSD (baseline.csv, licence synthetic test baseline) matched 1 of 1 data day(s), max relative diff 0.000091 vs 0.0200
   Note: Heuristics are warnings, not proof of fraud, authenticity or integrity.
   Note: Not financial advice. A baseline only compares the supplied dated prices.
   Note: Field mapping: time=time, open=open, high=high, low=low, close=close, spread=spread

@@ -265,6 +265,18 @@ fn schema_and_row_group_display_caps_are_reported() {
 }
 
 #[test]
+fn inspection_never_modifies_the_input_file() {
+    let path = fixture(fixtures::TRADES);
+    let before = std::fs::read(&path).unwrap();
+    let session = Session::open_path(&path, &Limits::default()).unwrap();
+    let _ = session.sample(0, 10).unwrap();
+    let report = session.scan(&parquet_preview_core::CancelToken::new()).unwrap();
+    assert_eq!(report.exact_row_count, Some(60));
+    let after = std::fs::read(&path).unwrap();
+    assert_eq!(before, after);
+}
+
+#[test]
 fn market_sample_has_expected_nulls_and_varies() {
     let session = open(fixtures::TRADES);
     let sample = session.sample(0, 60).unwrap();

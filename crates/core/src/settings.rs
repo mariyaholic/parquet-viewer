@@ -162,6 +162,7 @@ mod tests {
             baseline: Some(BaselineSpec {
                 path: "baseline.csv".into(),
                 instrument: Some("EURUSD".into()),
+                licence: Some("internal research".into()),
             }),
         };
         let json = serde_json::to_string(&settings).unwrap();

@@ -534,5 +534,8 @@ unsafe extern "system" fn edit_proc(
     }
     let raw = ffi::GetWindowLongPtrW(hwnd, ffi::GWLP_USERDATA);
     let previous: ffi::WNDPROC = std::mem::transmute(raw);
-    ffi::CallWindowProcW(previous, hwnd, message, wparam, lparam)
+    match previous {
+        Some(_) => ffi::CallWindowProcW(previous, hwnd, message, wparam, lparam),
+        None => ffi::DefWindowProcW(hwnd, message, wparam, lparam),
+    }
 }
