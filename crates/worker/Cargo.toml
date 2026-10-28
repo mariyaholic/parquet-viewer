@@ -1,0 +1,19 @@
+[package]
+name = "parquet-preview-worker"
+description = "Isolated worker process for the Parquet preview handler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+parquet-preview-core = { path = "../core" }
+parquet-preview-protocol = { path = "../protocol" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+parquet-preview-fixtures = { path = "../fixtures" }
