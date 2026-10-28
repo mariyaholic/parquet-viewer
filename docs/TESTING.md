@@ -102,3 +102,11 @@ scripts/build-windows.sh
 Cross-compiling test executables does not run them. The registration cleanup,
 COM apartment behavior and Explorer integration still require Windows runtime
 verification; the native release script also requires a Windows run.
+
+## Round-two checks and limitations
+
+Explorer stream input is copied on the calling COM apartment before background work. The handler accepts up to 64 MiB, and a slow stream can block the preview thread during this copy. Verify responsiveness, failures, repeated previews and cancellation with real Explorer streams on Windows. Larger inputs currently require a redesigned bounded disk spool.
+
+Uninstall leaves shared association keys in place after removing the owned value, avoiding a non-atomic empty-key deletion. Verify real registry behaviour and conflict restoration on Windows, including concurrent changes. The ownership check and value removal themselves are separate registry operations, so concurrent reassignment remains a race; avoid simultaneous association changes during uninstall.
+
+Run `scripts/build-windows.ps1` on Windows and compare independent release builds. Cross-builds do not establish native reproducibility or execute COM. Release outputs must retain LICENSE, NOTICE and THIRD_PARTY.md.

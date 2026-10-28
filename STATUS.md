@@ -1,0 +1,7 @@
+# Status
+
+[measured] The local read-only Parquet preview handler, worker and diagnostics are built. Explorer streams are copied into a bounded 64 MiB snapshot on their owning COM thread before background work (`crates/windows/src/handler.rs:138`, `crates/windows/src/copy_stream.rs:6`). Shared association keys are retained to avoid the empty-check/delete race (`crates/windows/src/win32_registry.rs:22`).
+
+[measured] Offline verification with `CARGO_NET_OFFLINE=true` and the scratch target directory: `cargo test --offline` passed 130 tests, 0 failed; `cargo build --offline`, `cargo build --offline --target x86_64-pc-windows-gnu`, `cargo test --offline --no-run --target x86_64-pc-windows-gnu`, `cargo fmt --check`, and `cargo clippy --offline --all-targets` for Linux and Windows GNU passed. Windows Clippy emitted warnings; details and command logs are in the round-two report. `cargo deny --offline check licenses` passed for the all-target, Linux and Windows GNU graphs (`deny.toml:2`).
+
+[measured] Rust sources under `crates` total 11,379 lines including tests. Real Windows is required for Explorer stream behavior, registration, cancellation, the Windows-only registry test, and the native PowerShell build (`docs/TESTING.md:48`). [inferred] Snapshotting may block a slow COM thread and rejects streams larger than 64 MiB; the association ownership check and value removal are still separate operations (`docs/TESTING.md:106`). Release reproducibility and other open results are recorded in the round-two report.
