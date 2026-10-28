@@ -7,6 +7,69 @@ use crate::registration::Registry;
 pub struct Win32Registry;
 
 impl Registry for Win32Registry {
+    fn delete_value(&self, key: &str, name: &str) -> Result<(), String> {
+        let key = ffi::wide(key);
+        let name = ffi::wide(name);
+        let status =
+            unsafe { ffi::RegDeleteKeyValueW(ffi::HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr()) };
+        if status == ffi::ERROR_SUCCESS || status == ffi::ERROR_FILE_NOT_FOUND {
+            Ok(())
+        } else {
+            Err(format!("RegDeleteKeyValueW failed with status {status}"))
+        }
+    }
+
+    fn delete_empty_key(&self, key: &str) -> Result<(), String> {
+        let path = ffi::wide(key);
+        let mut handle = 0;
+        let status = unsafe {
+            ffi::RegOpenKeyExW(
+                ffi::HKEY_CURRENT_USER,
+                path.as_ptr(),
+                0,
+                0x20019,
+                &mut handle,
+            )
+        };
+        if status == ffi::ERROR_FILE_NOT_FOUND {
+            return Ok(());
+        }
+        if status != ffi::ERROR_SUCCESS {
+            return Err(format!("RegOpenKeyExW failed with status {status}"));
+        }
+        let mut subkeys = 0;
+        let mut values = 0;
+        let status = unsafe {
+            ffi::RegQueryInfoKeyW(
+                handle,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut subkeys,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut values,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        unsafe {
+            ffi::RegCloseKey(handle);
+        }
+        if status != ffi::ERROR_SUCCESS {
+            return Err(format!("RegQueryInfoKeyW failed with status {status}"));
+        }
+        if subkeys == 0 && values == 0 {
+            let status = unsafe { ffi::RegDeleteKeyW(ffi::HKEY_CURRENT_USER, path.as_ptr()) };
+            if status != ffi::ERROR_SUCCESS && status != ffi::ERROR_FILE_NOT_FOUND {
+                return Err(format!("RegDeleteKeyW failed with status {status}"));
+            }
+        }
+        Ok(())
+    }
+
     fn get_string(&self, key: &str, name: &str) -> Result<Option<String>, String> {
         let key = ffi::wide(key);
         let name = if name.is_empty() {
@@ -123,9 +186,8 @@ pub fn current_module_handle() -> Result<ffi::HMODULE, String> {
 pub fn current_module_path() -> Result<String, String> {
     let module = current_module_handle()?;
     let mut buffer = vec![0u16; 32_768];
-    let length = unsafe {
-        ffi::GetModuleFileNameW(module, buffer.as_mut_ptr(), buffer.len() as u32)
-    };
+    let length =
+        unsafe { ffi::GetModuleFileNameW(module, buffer.as_mut_ptr(), buffer.len() as u32) };
     if length == 0 {
         return Err("GetModuleFileNameW failed".to_string());
     }

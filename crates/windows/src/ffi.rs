@@ -126,19 +126,15 @@ impl GUID {
             self.data4[7]
         )
     }
-
 }
 
 pub const IID_IUNKNOWN: GUID = GUID::from_u128(0x00000000_0000_0000_c000_000000000046);
 pub const IID_ICLASSFACTORY: GUID = GUID::from_u128(0x00000001_0000_0000_c000_000000000046);
-pub const IID_IINITIALIZEWITHSTREAM: GUID =
-    GUID::from_u128(0xb824b49d_22ac_4161_ac8a_9916e8fa3f7f);
-pub const IID_IPREVIEWHANDLER: GUID =
-    GUID::from_u128(0x8895b1c6_b41f_4c1c_a562_0d564250836f);
+pub const IID_IINITIALIZEWITHSTREAM: GUID = GUID::from_u128(0xb824b49d_22ac_4161_ac8a_9916e8fa3f7f);
+pub const IID_IPREVIEWHANDLER: GUID = GUID::from_u128(0x8895b1c6_b41f_4c1c_a562_0d564250836f);
 pub const IID_IPREVIEWHANDLERVISUALS: GUID =
     GUID::from_u128(0x196bf9a5_b346_4ef0_aa1e_5dcdb76768b1);
-pub const CLSID_PARQUET_PREVIEW: GUID =
-    GUID::from_u128(0x7f2c9e4a_2b6d_4b7e_9c3a_5d1e8a0f6b21);
+pub const CLSID_PARQUET_PREVIEW: GUID = GUID::from_u128(0x7f2c9e4a_2b6d_4b7e_9c3a_5d1e8a0f6b21);
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
@@ -325,6 +321,30 @@ extern "system" {
         size: u32,
     ) -> LSTATUS;
     pub fn RegDeleteTreeW(key: HKEY, subkey: *const u16) -> LSTATUS;
+    pub fn RegDeleteKeyValueW(key: HKEY, subkey: *const u16, value: *const u16) -> LSTATUS;
+    pub fn RegOpenKeyExW(
+        key: HKEY,
+        subkey: *const u16,
+        options: u32,
+        access: u32,
+        result: *mut HKEY,
+    ) -> LSTATUS;
+    pub fn RegCloseKey(key: HKEY) -> LSTATUS;
+    pub fn RegQueryInfoKeyW(
+        key: HKEY,
+        class: *mut u16,
+        class_len: *mut u32,
+        reserved: *mut u32,
+        subkeys: *mut u32,
+        max_subkey: *mut u32,
+        max_class: *mut u32,
+        values: *mut u32,
+        max_value_name: *mut u32,
+        max_value_len: *mut u32,
+        security: *mut u32,
+        last_write: *mut c_void,
+    ) -> LSTATUS;
+    pub fn RegDeleteKeyW(key: HKEY, subkey: *const u16) -> LSTATUS;
 }
 
 /// NUL-terminated UTF-16 conversion for Win32 calls.

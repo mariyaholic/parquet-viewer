@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 pub const CLSID: &str = "{7F2C9E4A-2B6D-4B7E-9C3A-5D1E8A0F6B21}";
 pub const PREVIEW_HANDLER_SHELLEXT: &str = "{8895B1C6-B41F-4C1C-A562-0D564250836F}";
 pub const EXTENSION: &str = ".parquet";
+const DISPLAY_NAME: &str = "Parquet viewer and preview";
+const PREVHOST_APPID: &str = "{6D2B5079-2F0B-48DD-AB7F-97CEC514D30B}";
+const PREVIEW_HANDLERS: &str = r"Software\Microsoft\Windows\CurrentVersion\PreviewHandlers";
 
 const BACKUP: &str = r"Software\ParquetPreview\Backup";
 
@@ -76,6 +79,8 @@ pub trait Registry {
     fn get_string(&self, key: &str, name: &str) -> Result<Option<String>, String>;
     fn set_string(&self, key: &str, name: &str, value: &str) -> Result<(), String>;
     fn delete_tree(&self, key: &str) -> Result<(), String>;
+    fn delete_value(&self, key: &str, name: &str) -> Result<(), String>;
+    fn delete_empty_key(&self, key: &str) -> Result<(), String>;
 }
 
 /// In-memory registry for tests, mutable via interior mutability.
@@ -129,6 +134,13 @@ impl TestRegistry {
 }
 
 impl Registry for TestRegistry {
+    fn delete_value(&self, key: &str, name: &str) -> Result<(), String> {
+        self.remove_raw(key, name);
+        Ok(())
+    }
+    fn delete_empty_key(&self, _key: &str) -> Result<(), String> {
+        Ok(())
+    }
     fn get_string(&self, key: &str, name: &str) -> Result<Option<String>, String> {
         Ok(self.value(key, name))
     }
@@ -170,9 +182,7 @@ pub fn register(
         .map(|value| !value.eq_ignore_ascii_case(CLSID))
         .unwrap_or(false);
     if overwrote && !allow_overwrite {
-        return Err(RegistrationError::Conflict(
-            previous.unwrap_or_default(),
-        ));
+        return Err(RegistrationError::Conflict(previous.unwrap_or_default()));
     }
 
     // Preserve the first backup only; updates must not replace the original.
@@ -182,14 +192,21 @@ pub fn register(
         .is_none()
     {
         registry
-            .set_string(
-                BACKUP,
-                "",
-                previous.as_deref().unwrap_or(""),
-            )
+            .set_string(BACKUP, "", previous.as_deref().unwrap_or(""))
             .map_err(RegistrationError::Registry)?;
     }
 
+    // Microsoft, "How to register a preview handler": register the surrogate
+    // AppID and list the handler under PreviewHandlers as well as ShellEx.
+    registry
+        .set_string(&clsid_key(), "AppID", PREVHOST_APPID)
+        .map_err(RegistrationError::Registry)?;
+    registry
+        .set_string(&clsid_key(), "DisplayName", DISPLAY_NAME)
+        .map_err(RegistrationError::Registry)?;
+    registry
+        .set_string(PREVIEW_HANDLERS, CLSID, DISPLAY_NAME)
+        .map_err(RegistrationError::Registry)?;
     registry
         .set_string(&shell, "", CLSID)
         .map_err(RegistrationError::Registry)?;
@@ -244,8 +261,17 @@ pub fn unregister(registry: &dyn Registry) -> Result<UnregistrationReport, Regis
                 }
                 _ => {
                     registry
-                        .delete_tree(&shell)
+                        .delete_value(&shell, "")
                         .map_err(RegistrationError::Registry)?;
+                    for key in [
+                        shell.as_str(),
+                        r"Software\Classes\.parquet\ShellEx",
+                        r"Software\Classes\.parquet",
+                    ] {
+                        registry
+                            .delete_empty_key(key)
+                            .map_err(RegistrationError::Registry)?;
+                    }
                 }
             }
         } else {
@@ -254,6 +280,9 @@ pub fn unregister(registry: &dyn Registry) -> Result<UnregistrationReport, Regis
         }
     }
 
+    registry
+        .delete_value(PREVIEW_HANDLERS, CLSID)
+        .map_err(RegistrationError::Registry)?;
     registry
         .delete_tree(&clsid_key())
         .map_err(RegistrationError::Registry)?;
@@ -280,16 +309,25 @@ mod tests {
         let report = register(&registry, DLL, false).unwrap();
         assert!(!report.overwrote_existing);
         assert_eq!(report.previous_handler, None);
-        assert_eq!(
-            registry.value(&shell_ex_key(), "").as_deref(),
-            Some(CLSID)
-        );
+        assert_eq!(registry.value(&shell_ex_key(), "").as_deref(), Some(CLSID));
         assert_eq!(registry.value(&inproc_key(), "").as_deref(), Some(DLL));
         assert_eq!(
             registry.value(&inproc_key(), "ThreadingModel").as_deref(),
             Some("Both")
         );
         assert_eq!(registry.value(BACKUP, "").as_deref(), Some(""));
+        assert_eq!(
+            registry.value(&clsid_key(), "AppID").as_deref(),
+            Some(PREVHOST_APPID)
+        );
+        assert_eq!(
+            registry.value(&clsid_key(), "DisplayName").as_deref(),
+            Some(DISPLAY_NAME)
+        );
+        assert_eq!(
+            registry.value(PREVIEW_HANDLERS, CLSID).as_deref(),
+            Some(DISPLAY_NAME)
+        );
     }
 
     #[test]
@@ -309,17 +347,14 @@ mod tests {
         let registry = TestRegistry::with_extension_handler("{OTHER-HANDLER}");
         let report = register(&registry, DLL, true).unwrap();
         assert!(report.overwrote_existing);
+        assert_eq!(report.previous_handler.as_deref(), Some("{OTHER-HANDLER}"));
         assert_eq!(
-            report.previous_handler.as_deref(),
+            registry.value(BACKUP, "").as_deref(),
             Some("{OTHER-HANDLER}")
         );
-        assert_eq!(registry.value(BACKUP, "").as_deref(), Some("{OTHER-HANDLER}"));
 
         let report = unregister(&registry).unwrap();
-        assert_eq!(
-            report.restored_handler.as_deref(),
-            Some("{OTHER-HANDLER}")
-        );
+        assert_eq!(report.restored_handler.as_deref(), Some("{OTHER-HANDLER}"));
         assert_eq!(
             registry.value(&shell_ex_key(), "").as_deref(),
             Some("{OTHER-HANDLER}")
@@ -332,7 +367,13 @@ mod tests {
     fn unregister_fresh_installation_removes_association() {
         let registry = TestRegistry::new();
         register(&registry, DLL, false).unwrap();
+        registry.set_raw(&shell_ex_key(), "foreign", "keep");
         unregister(&registry).unwrap();
+        assert_eq!(
+            registry.value(&shell_ex_key(), "foreign").as_deref(),
+            Some("keep")
+        );
+        assert_eq!(registry.value(PREVIEW_HANDLERS, CLSID), None);
         assert_eq!(registry.value(&shell_ex_key(), ""), None);
         assert!(!registry.key_exists(&clsid_key()));
     }
@@ -364,8 +405,14 @@ mod tests {
             Some(CLSID),
             "second run sees our own handler as previous"
         );
-        assert_eq!(registry.value(BACKUP, "").as_deref(), Some("{OTHER-HANDLER}"));
-        assert_eq!(registry.value(&inproc_key(), "").as_deref(), Some("C:\\new.dll"));
+        assert_eq!(
+            registry.value(BACKUP, "").as_deref(),
+            Some("{OTHER-HANDLER}")
+        );
+        assert_eq!(
+            registry.value(&inproc_key(), "").as_deref(),
+            Some("C:\\new.dll")
+        );
     }
 
     #[test]
