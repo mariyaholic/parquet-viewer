@@ -19,54 +19,9 @@ impl Registry for Win32Registry {
         }
     }
 
-    fn delete_empty_key(&self, key: &str) -> Result<(), String> {
-        let path = ffi::wide(key);
-        let mut handle = 0;
-        let status = unsafe {
-            ffi::RegOpenKeyExW(
-                ffi::HKEY_CURRENT_USER,
-                path.as_ptr(),
-                0,
-                0x20019,
-                &mut handle,
-            )
-        };
-        if status == ffi::ERROR_FILE_NOT_FOUND {
-            return Ok(());
-        }
-        if status != ffi::ERROR_SUCCESS {
-            return Err(format!("RegOpenKeyExW failed with status {status}"));
-        }
-        let mut subkeys = 0;
-        let mut values = 0;
-        let status = unsafe {
-            ffi::RegQueryInfoKeyW(
-                handle,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &mut subkeys,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &mut values,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-            )
-        };
-        unsafe {
-            ffi::RegCloseKey(handle);
-        }
-        if status != ffi::ERROR_SUCCESS {
-            return Err(format!("RegQueryInfoKeyW failed with status {status}"));
-        }
-        if subkeys == 0 && values == 0 {
-            let status = unsafe { ffi::RegDeleteKeyW(ffi::HKEY_CURRENT_USER, path.as_ptr()) };
-            if status != ffi::ERROR_SUCCESS && status != ffi::ERROR_FILE_NOT_FOUND {
-                return Err(format!("RegDeleteKeyW failed with status {status}"));
-            }
-        }
+    fn delete_empty_key(&self, _key: &str) -> Result<(), String> {
+        // Registry has no atomic "delete only if no values or subkeys" operation.
+        // Leaving shared keys avoids deleting a value added after an emptiness check.
         Ok(())
     }
 
@@ -103,7 +58,7 @@ impl Registry for Win32Registry {
         if size == 0 {
             return Ok(Some(String::new()));
         }
-        let mut buffer = vec![0u16; (size as usize + 1) / 2 + 1];
+        let mut buffer = vec![0u16; (size as usize).div_ceil(2) + 1];
         let mut size = (buffer.len() * 2) as u32;
         let status = unsafe {
             ffi::RegGetValueW(
@@ -196,4 +151,22 @@ pub fn current_module_path() -> Result<String, String> {
         return Err("module path is too long".to_string());
     }
     String::from_utf16(&buffer[..length]).map_err(|_| "module path is not UTF-16".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_preserves_a_shared_key_and_its_values() {
+        let registry = Win32Registry;
+        let key = format!("Software\\ParquetPreviewTest-{}", std::process::id());
+        registry.set_string(&key, "other-owner", "keep").unwrap();
+        registry.delete_empty_key(&key).unwrap();
+        assert_eq!(
+            registry.get_string(&key, "other-owner").unwrap().as_deref(),
+            Some("keep")
+        );
+        registry.delete_tree(&key).unwrap();
+    }
 }

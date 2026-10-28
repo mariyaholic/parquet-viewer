@@ -322,29 +322,7 @@ extern "system" {
     ) -> LSTATUS;
     pub fn RegDeleteTreeW(key: HKEY, subkey: *const u16) -> LSTATUS;
     pub fn RegDeleteKeyValueW(key: HKEY, subkey: *const u16, value: *const u16) -> LSTATUS;
-    pub fn RegOpenKeyExW(
-        key: HKEY,
-        subkey: *const u16,
-        options: u32,
-        access: u32,
-        result: *mut HKEY,
-    ) -> LSTATUS;
-    pub fn RegCloseKey(key: HKEY) -> LSTATUS;
-    pub fn RegQueryInfoKeyW(
-        key: HKEY,
-        class: *mut u16,
-        class_len: *mut u32,
-        reserved: *mut u32,
-        subkeys: *mut u32,
-        max_subkey: *mut u32,
-        max_class: *mut u32,
-        values: *mut u32,
-        max_value_name: *mut u32,
-        max_value_len: *mut u32,
-        security: *mut u32,
-        last_write: *mut c_void,
-    ) -> LSTATUS;
-    pub fn RegDeleteKeyW(key: HKEY, subkey: *const u16) -> LSTATUS;
+
 }
 
 /// NUL-terminated UTF-16 conversion for Win32 calls.
