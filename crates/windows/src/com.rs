@@ -720,6 +720,7 @@ mod e2e {
     extern "system" {
         fn GetWindow(window: ffi::HWND, command: u32) -> ffi::HWND;
         fn GetWindowTextW(window: ffi::HWND, buffer: *mut u16, max: i32) -> i32;
+        fn GetWindowTextLengthW(window: ffi::HWND) -> i32;
         fn PeekMessageW(
             msg: *mut ffi::MSG,
             window: ffi::HWND,
@@ -927,10 +928,16 @@ mod e2e {
                     DispatchMessageW(&message);
                 }
             }
-            let mut buffer = vec![0u16; 8192];
-            let length = unsafe { GetWindowTextW(edit, buffer.as_mut_ptr(), buffer.len() as i32) };
+            // Size the read from the control itself. The preview report is
+            // ~9.5k characters, so the previous fixed 8,192-element buffer
+            // truncated the tail (the credit line and the trademark notice),
+            // hiding text the harness should be able to assert on.
+            let length = unsafe { GetWindowTextLengthW(edit) };
             if length > 0 {
-                text = String::from_utf16_lossy(&buffer[..length as usize]);
+                let mut buffer = vec![0u16; length as usize + 1];
+                let copied =
+                    unsafe { GetWindowTextW(edit, buffer.as_mut_ptr(), buffer.len() as i32) };
+                text = String::from_utf16_lossy(&buffer[..copied as usize]);
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
@@ -1076,6 +1083,14 @@ mod e2e {
         assert!(
             !text.contains("Could not preview"),
             "the handler fell back to an error: {:.200}",
+            text
+        );
+        // The report ends with the credit and trademark lines. Asserting on the
+        // tail proves the harness now captures the whole control text (the
+        // buffer is sized from GetWindowTextLengthW, not a fixed 8,192).
+        assert!(
+            text.contains("Made by Maria"),
+            "the preview text lost the credit line at the end of the report: {:.200}",
             text
         );
 
