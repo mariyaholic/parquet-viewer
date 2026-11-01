@@ -15,6 +15,11 @@ use parquet_preview_core::{PreviewError, Result};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Name prefix and suffix of the private spool files. Shared with the startup
+/// sweep so a leaked spool can be recognised without touching anything else.
+pub const SPOOL_PREFIX: &str = "parquet-preview-";
+pub const SPOOL_SUFFIX: &str = ".tmp";
+
 pub struct SpoolFile {
     path: PathBuf,
     file: Option<File>,
@@ -33,7 +38,7 @@ impl SpoolFile {
         for _ in 0..16 {
             let nonce = COUNTER.fetch_add(1, Ordering::Relaxed);
             let path = dir.join(format!(
-                "parquet-preview-{}-{}-{}.tmp",
+                "{SPOOL_PREFIX}{}-{}-{}{SPOOL_SUFFIX}",
                 std::process::id(),
                 nonce,
                 std::time::SystemTime::now()
@@ -47,6 +52,24 @@ impl SpoolFile {
             {
                 use std::os::unix::fs::OpenOptionsExt;
                 options.mode(0o600);
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::OpenOptionsExt;
+                // TerminateProcess runs no destructors, so the `Drop` cleanup
+                // never fires on the routine kill path (selection change, job
+                // memory kill, unload). FILE_FLAG_DELETE_ON_CLOSE makes the
+                // kernel delete the file when the terminated process's last
+                // handle closes. DELETE access must be requested explicitly.
+                const GENERIC_READ: u32 = 0x8000_0000;
+                const GENERIC_WRITE: u32 = 0x4000_0000;
+                const DELETE: u32 = 0x0001_0000;
+                const FILE_SHARE_READ: u32 = 0x0000_0001;
+                const FILE_SHARE_DELETE: u32 = 0x0000_0004;
+                const FILE_FLAG_DELETE_ON_CLOSE: u32 = 0x0400_0000;
+                options.access_mode(GENERIC_READ | GENERIC_WRITE | DELETE);
+                options.share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE);
+                options.custom_flags(FILE_FLAG_DELETE_ON_CLOSE);
             }
             match options.open(&path) {
                 Ok(file) => {
@@ -116,6 +139,44 @@ impl Drop for SpoolFile {
     }
 }
 
+/// Delete leftover `parquet-preview-*.tmp` files older than `max_age`.
+///
+/// Delete-on-close (Windows) and the `Drop` cleanup cover the normal cases;
+/// this sweeps files leaked by a crashed process or an older build. Best
+/// effort: only files matching the spool prefix/suffix are considered, a live
+/// worker's file is younger than `max_age` under normal use, and every error
+/// is ignored. Returns how many files were removed (for tests).
+pub fn sweep_stale_spools(max_age: std::time::Duration) -> usize {
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return 0;
+    };
+    let now = std::time::SystemTime::now();
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with(SPOOL_PREFIX) || !name.ends_with(SPOOL_SUFFIX) {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        if now.duration_since(modified).unwrap_or_default() < max_age {
+            continue;
+        }
+        if std::fs::remove_file(entry.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,5 +224,39 @@ mod tests {
             let mode = std::fs::metadata(a.path()).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }
+    }
+
+    #[test]
+    fn sweep_removes_only_old_spool_files() {
+        let dir = std::env::temp_dir();
+        let uniq = format!(
+            "{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        );
+        let old = dir.join(format!("{SPOOL_PREFIX}sweep-old-{uniq}{SPOOL_SUFFIX}"));
+        let fresh = dir.join(format!("{SPOOL_PREFIX}sweep-new-{uniq}{SPOOL_SUFFIX}"));
+        let unrelated = dir.join(format!("not-a-spool-{uniq}.tmp"));
+        std::fs::write(&old, b"old").unwrap();
+        std::fs::write(&fresh, b"new").unwrap();
+        std::fs::write(&unrelated, b"x").unwrap();
+        // Age the first file past the sweep threshold.
+        let two_hours = std::time::Duration::from_secs(2 * 3600);
+        let when = std::time::SystemTime::now() - two_hours;
+        std::fs::File::options()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+
+        let removed = sweep_stale_spools(std::time::Duration::from_secs(3600));
+        assert!(removed >= 1, "the aged spool should have been swept");
+        assert!(!old.exists(), "an old spool file must be removed");
+        assert!(fresh.exists(), "a fresh spool file must be kept");
+        assert!(unrelated.exists(), "a non-spool temp file must be kept");
+
+        let _ = std::fs::remove_file(&fresh);
+        let _ = std::fs::remove_file(&unrelated);
     }
 }

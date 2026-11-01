@@ -81,3 +81,51 @@ fn dropping_client_kills_worker() {
         assert!(!status.success());
     }
 }
+
+/// Spool temp files created by the worker `pid`, if any.
+#[cfg(windows)]
+fn spool_files_for(pid: u32) -> Vec<PathBuf> {
+    let prefix = format!("parquet-preview-{pid}-");
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.starts_with(&prefix) && name.ends_with(".tmp"))
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+/// A hard kill (`TerminateProcess`) runs no Rust destructors, so the spool file
+/// must be removed by the OS (delete-on-close), not by `Drop`. Fails before the
+/// M2 fix and passes after it.
+#[cfg(windows)]
+#[test]
+fn killing_the_worker_leaves_no_spool_file() {
+    let mut client = WorkerClient::spawn(&worker_binary(), "spool-kill-test").unwrap();
+    let pid = client.pid();
+    let bytes = std::fs::read(fixture(fixtures::TRADES)).unwrap();
+    client
+        .open_stream(&mut Cursor::new(&bytes), bytes.len() as u64)
+        .unwrap();
+    assert!(
+        !spool_files_for(pid).is_empty(),
+        "the live worker should hold a spool file before the kill"
+    );
+    client.kill();
+    // Give the kernel a moment to release the terminated process's handles.
+    let mut left = spool_files_for(pid);
+    for _ in 0..40 {
+        if left.is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        left = spool_files_for(pid);
+    }
+    assert!(left.is_empty(), "spool file survived the kill: {left:?}");
+}
