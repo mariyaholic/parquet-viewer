@@ -533,6 +533,314 @@ pub extern "system" fn DllMain(
     1
 }
 
+/// Opt-in end-to-end harness: drives the real class factory and preview handler
+/// through a real `IStream` and a real isolated worker process.
+///
+/// This is the only test that exercises the COM, Win32 and process paths
+/// together (factory -> `CreateInstance` -> QI -> `Initialize` -> `SetWindow`
+/// -> `DoPreview` -> message pump -> edit text -> `Unload` -> Release), and it
+/// is the safety net the L5 / M1 fixes reuse. It is skipped unless
+/// `PARQUET_PREVIEW_E2E=1`, so the normal `cargo test` run is unaffected; the
+/// Windows CI job runs it in a dedicated step.
+///
+/// Build the workspace first (`cargo build --workspace`) so
+/// `parquet-preview-worker.exe` sits next to the test binary.
+#[cfg(all(test, windows))]
+mod e2e {
+    use std::path::PathBuf;
+
+    use super::*;
+
+    #[link(name = "shlwapi")]
+    extern "system" {
+        fn SHCreateMemStream(init: *const u8, size: u32) -> *mut c_void;
+    }
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetWindow(window: ffi::HWND, command: u32) -> ffi::HWND;
+        fn GetWindowTextW(window: ffi::HWND, buffer: *mut u16, max: i32) -> i32;
+        fn PeekMessageW(
+            msg: *mut ffi::MSG,
+            window: ffi::HWND,
+            min: u32,
+            max: u32,
+            remove: u32,
+        ) -> ffi::BOOL;
+        fn TranslateMessage(msg: *const ffi::MSG) -> ffi::BOOL;
+        fn DispatchMessageW(msg: *const ffi::MSG) -> ffi::LRESULT;
+    }
+
+    const GW_CHILD: u32 = 5;
+    const PM_REMOVE: u32 = 0x0001;
+
+    fn opted_in() -> bool {
+        std::env::var("PARQUET_PREVIEW_E2E").as_deref() == Ok("1")
+    }
+
+    /// `<target>/<profile>/parquet-preview-worker.exe`, from the test binary's
+    /// own location (`<target>/<profile>/deps/`).
+    fn worker_binary() -> Option<PathBuf> {
+        let exe = std::env::current_exe().ok()?;
+        let candidate = exe.parent()?.parent()?.join("parquet-preview-worker.exe");
+        candidate.exists().then_some(candidate)
+    }
+
+    fn fixture(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("tests")
+            .join("fixtures")
+            .join(name)
+    }
+
+    /// Every worker spool file in the temp directory.
+    fn spool_files() -> Vec<PathBuf> {
+        let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.starts_with("parquet-preview-") && name.ends_with(".tmp"))
+                    .unwrap_or(false)
+            })
+            .collect()
+    }
+
+    unsafe fn release(interface: *mut c_void) {
+        if interface.is_null() {
+            return;
+        }
+        let table = *(interface as *const *const IUnknownVtbl);
+        ((*table).release)(interface);
+    }
+
+    /// A hidden top-level window to host the handler's child window.
+    struct ParentWindow(ffi::HWND);
+
+    impl ParentWindow {
+        fn new() -> Self {
+            let instance = win32_registry::current_module_handle().expect("module handle");
+            let class = ffi::wide(&format!("ParquetPreviewE2E-{}", std::process::id()));
+            let class_def = ffi::WNDCLASSW {
+                style: 0,
+                lpfnWndProc: Some(ffi::DefWindowProcW),
+                cbClsExtra: 0,
+                cbWndExtra: 0,
+                hInstance: instance,
+                hIcon: 0,
+                hCursor: 0,
+                hbrBackground: 0,
+                lpszMenuName: std::ptr::null(),
+                lpszClassName: class.as_ptr(),
+            };
+            unsafe { ffi::RegisterClassW(&class_def) };
+            let title = ffi::wide("Parquet preview e2e");
+            let hwnd = unsafe {
+                ffi::CreateWindowExW(
+                    0,
+                    class.as_ptr(),
+                    title.as_ptr(),
+                    0,
+                    0,
+                    0,
+                    400,
+                    300,
+                    0,
+                    0,
+                    instance,
+                    std::ptr::null_mut(),
+                )
+            };
+            assert_ne!(hwnd, 0, "CreateWindowExW failed for the e2e parent");
+            Self(hwnd)
+        }
+    }
+
+    impl Drop for ParentWindow {
+        fn drop(&mut self) {
+            unsafe { ffi::DestroyWindow(self.0) };
+        }
+    }
+
+    /// Pump messages until the edit control has text or `timeout` elapses.
+    fn pump_until_text(edit: ffi::HWND, timeout: std::time::Duration) -> String {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut text = String::new();
+        while std::time::Instant::now() < deadline {
+            let mut message = ffi::MSG::default();
+            // SAFETY: message is a valid MSG; the loop drains this thread's queue.
+            unsafe {
+                while PeekMessageW(&mut message, 0, 0, 0, PM_REMOVE) != 0 {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+            }
+            let mut buffer = vec![0u16; 8192];
+            let length = unsafe { GetWindowTextW(edit, buffer.as_mut_ptr(), buffer.len() as i32) };
+            if length > 0 {
+                text = String::from_utf16_lossy(&buffer[..length as usize]);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        text
+    }
+
+    #[test]
+    fn full_preview_round_trip() {
+        if !opted_in() {
+            eprintln!("skipping e2e: set PARQUET_PREVIEW_E2E=1 to run");
+            return;
+        }
+        let worker = worker_binary().expect(
+            "parquet-preview-worker.exe not found; build the workspace before the e2e harness",
+        );
+        std::env::set_var("PARQUET_PREVIEW_WORKER", &worker);
+
+        let bytes = std::fs::read(fixture("trades.parquet")).expect("read trades.parquet");
+        let parent = ParentWindow::new();
+        let before_spools = spool_files();
+
+        // Class factory straight from the DLL entry point (registration-free).
+        let mut factory: *mut c_void = std::ptr::null_mut();
+        let hr = unsafe {
+            DllGetClassObject(
+                &ffi::CLSID_PARQUET_PREVIEW,
+                &ffi::IID_ICLASSFACTORY,
+                &mut factory,
+            )
+        };
+        assert_eq!(hr, ffi::S_OK, "DllGetClassObject failed (0x{hr:08X})");
+        assert!(!factory.is_null(), "no class factory returned");
+
+        // CreateInstance(IID_IPreviewHandler).
+        let mut handler: *mut c_void = std::ptr::null_mut();
+        let hr = unsafe {
+            let table = *(factory as *const *const IClassFactoryVtbl);
+            ((*table).create_instance)(
+                factory,
+                std::ptr::null_mut(),
+                &ffi::IID_IPREVIEWHANDLER,
+                &mut handler,
+            )
+        };
+        assert_eq!(
+            hr,
+            ffi::S_OK,
+            "IClassFactory::CreateInstance failed (0x{hr:08X})"
+        );
+
+        // QI for IInitializeWithStream.
+        let mut initialize: *mut c_void = std::ptr::null_mut();
+        let hr = unsafe {
+            let table = *(handler as *const *const IPreviewHandlerVtbl);
+            ((*table).query_interface)(handler, &ffi::IID_IINITIALIZEWITHSTREAM, &mut initialize)
+        };
+        assert_eq!(
+            hr,
+            ffi::S_OK,
+            "QI IInitializeWithStream failed (0x{hr:08X})"
+        );
+
+        // A real IStream over the fixture bytes (STGM_READ == 0).
+        let stream = unsafe { SHCreateMemStream(bytes.as_ptr(), bytes.len() as u32) };
+        assert!(!stream.is_null(), "SHCreateMemStream failed");
+        let hr = unsafe {
+            let table = *(initialize as *const *const IInitializeWithStreamVtbl);
+            ((*table).initialize)(initialize, stream, 0)
+        };
+        assert_eq!(
+            hr,
+            ffi::S_OK,
+            "IInitializeWithStream::Initialize failed (0x{hr:08X})"
+        );
+
+        // SetWindow + DoPreview.
+        let rect = ffi::RECT {
+            left: 0,
+            top: 0,
+            right: 400,
+            bottom: 300,
+        };
+        unsafe {
+            let table = *(handler as *const *const IPreviewHandlerVtbl);
+            assert_eq!(
+                ((*table).set_window)(handler, parent.0, &rect),
+                ffi::S_OK,
+                "SetWindow failed"
+            );
+            assert_eq!(
+                ((*table).do_preview)(handler),
+                ffi::S_OK,
+                "DoPreview failed"
+            );
+        }
+
+        // The handler's window is the parent's only child; the edit is its child.
+        let pane = unsafe { GetWindow(parent.0, GW_CHILD) };
+        assert_ne!(pane, 0, "the handler did not create its window");
+        let edit = unsafe { GetWindow(pane, GW_CHILD) };
+        assert_ne!(edit, 0, "the handler did not create the edit control");
+
+        let text = pump_until_text(edit, std::time::Duration::from_secs(30));
+        assert!(
+            !text.is_empty(),
+            "no preview text appeared before the deadline"
+        );
+        assert!(
+            text.contains("Rows: 60"),
+            "the preview did not report the fixture's 60 rows: {:.200}",
+            text
+        );
+        // The text layer emits LF; the handler converts to CRLF for the EDIT
+        // control (H1). This is only observable through a real control.
+        assert!(
+            text.contains("\r\n"),
+            "the edit control received LF-only text: {:.200}",
+            text
+        );
+        assert!(
+            !text.contains("Could not preview"),
+            "the handler fell back to an error: {:.200}",
+            text
+        );
+
+        // Unload terminates and joins the worker, then destroys the windows.
+        unsafe {
+            let table = *(handler as *const *const IPreviewHandlerVtbl);
+            assert_eq!(((*table).unload)(handler), ffi::S_OK, "Unload failed");
+        }
+
+        // The worker must be gone: no spool file may outlive it.
+        let mut left = spool_files();
+        for _ in 0..40 {
+            left.retain(|path| !before_spools.contains(path));
+            if left.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            left = spool_files();
+        }
+        left.retain(|path| !before_spools.contains(path));
+        assert!(left.is_empty(), "spool files survived Unload: {left:?}");
+
+        // Release every reference: initialize, handler, factory, then the stream
+        // (the handler already released its own stream reference in Unload).
+        unsafe {
+            release(initialize);
+            release(handler);
+            release(factory);
+            crate::stream::release(stream);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

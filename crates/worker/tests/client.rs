@@ -8,6 +8,29 @@ use parquet_preview_client::WorkerClient;
 use parquet_preview_core::PreviewOptions;
 use parquet_preview_fixtures as fixtures;
 
+/// Minimal Win32 process-wait surface, declared locally.
+///
+/// The worker test crate cannot reach `parquet-preview-windows::ffi` (that
+/// module is private) and does not depend on the Windows crate, so the two
+/// functions the kill assertion needs are declared here.
+#[cfg(windows)]
+mod win32 {
+    #![allow(non_snake_case, clippy::upper_case_acronyms)]
+
+    pub const SYNCHRONIZE: u32 = 0x0010_0000;
+    pub const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    pub const WAIT_OBJECT_0: u32 = 0x0000_0000;
+    pub type HANDLE = isize;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        pub fn OpenProcess(access: u32, inherit: i32, pid: u32) -> HANDLE;
+        pub fn WaitForSingleObject(handle: HANDLE, milliseconds: u32) -> u32;
+        pub fn GetExitCodeProcess(handle: HANDLE, code: *mut u32) -> i32;
+        pub fn CloseHandle(handle: HANDLE) -> i32;
+    }
+}
+
 fn worker_binary() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_parquet-preview-worker"))
 }
@@ -69,6 +92,16 @@ fn duplicate_open_replaces_the_file() {
 fn dropping_client_kills_worker() {
     let client = WorkerClient::spawn(&worker_binary(), "process-test").unwrap();
     let pid = client.pid();
+    #[cfg(windows)]
+    let handle = unsafe {
+        win32::OpenProcess(
+            win32::SYNCHRONIZE | win32::PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            pid,
+        )
+    };
+    #[cfg(windows)]
+    assert_ne!(handle, 0, "OpenProcess failed for pid {pid}");
     drop(client);
     // The process should be gone; on Linux signalling 0 returns an error.
     #[cfg(target_os = "linux")]
@@ -79,6 +112,28 @@ fn dropping_client_kills_worker() {
             .status()
             .unwrap();
         assert!(!status.success());
+    }
+    // On Windows the process object becomes signalled when the worker
+    // terminates, so a bounded wait returns WAIT_OBJECT_0. `Child::kill`
+    // terminates with exit code 1; a worker that merely saw its stdin close
+    // would exit 0, so the exit code proves the kill actually ran. Previously
+    // this platform asserted nothing at all.
+    #[cfg(windows)]
+    {
+        let status = unsafe { win32::WaitForSingleObject(handle, 10_000) };
+        let mut code = 0u32;
+        let ok = unsafe { win32::GetExitCodeProcess(handle, &mut code) };
+        unsafe { win32::CloseHandle(handle) };
+        assert_eq!(
+            status,
+            win32::WAIT_OBJECT_0,
+            "worker {pid} was still running after the client was dropped"
+        );
+        assert_ne!(ok, 0, "GetExitCodeProcess failed for pid {pid}");
+        assert_eq!(
+            code, 1,
+            "worker {pid} exited with code {code}, not the kill code"
+        );
     }
 }
 
