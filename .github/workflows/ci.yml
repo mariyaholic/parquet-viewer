@@ -16,3 +16,9 @@ jobs:
       - run: cargo test --locked --workspace
       - name: Check third-party licence bundle is current
         run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/generate-third-party-licenses.ps1 -Check
+      # Opt-in end-to-end COM harness: the only test that drives the real class
+      # factory, handler, IStream and isolated worker process together.
+      - name: End-to-end COM harness
+        env:
+          PARQUET_PREVIEW_E2E: "1"
+        run: cargo test --locked -p parquet-preview-windows --lib -- --nocapture full_preview_round_trip

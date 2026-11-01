@@ -80,7 +80,6 @@ pub trait Registry {
     fn set_string(&self, key: &str, name: &str, value: &str) -> Result<(), String>;
     fn delete_tree(&self, key: &str) -> Result<(), String>;
     fn delete_value(&self, key: &str, name: &str) -> Result<(), String>;
-    fn delete_empty_key(&self, key: &str) -> Result<(), String>;
 }
 
 /// In-memory registry for tests, mutable via interior mutability.
@@ -136,9 +135,6 @@ impl TestRegistry {
 impl Registry for TestRegistry {
     fn delete_value(&self, key: &str, name: &str) -> Result<(), String> {
         self.remove_raw(key, name);
-        Ok(())
-    }
-    fn delete_empty_key(&self, _key: &str) -> Result<(), String> {
         Ok(())
     }
     fn get_string(&self, key: &str, name: &str) -> Result<Option<String>, String> {
@@ -260,18 +256,14 @@ pub fn unregister(registry: &dyn Registry) -> Result<UnregistrationReport, Regis
                     restored = Some(previous.to_string());
                 }
                 _ => {
+                    // Only the association value is removed; the empty keys are
+                    // left in place (see the uninstall note in the README). There
+                    // is no atomic "delete only if empty" registry operation, so
+                    // pruning them risks deleting a value another process added
+                    // between the emptiness check and the delete.
                     registry
                         .delete_value(&shell, "")
                         .map_err(RegistrationError::Registry)?;
-                    for key in [
-                        shell.as_str(),
-                        r"Software\Classes\.parquet\ShellEx",
-                        r"Software\Classes\.parquet",
-                    ] {
-                        registry
-                            .delete_empty_key(key)
-                            .map_err(RegistrationError::Registry)?;
-                    }
                 }
             }
         } else {
