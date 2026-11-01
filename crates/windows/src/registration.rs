@@ -181,12 +181,16 @@ pub fn register(
         return Err(RegistrationError::Conflict(previous.unwrap_or_default()));
     }
 
-    // Preserve the first backup only; updates must not replace the original.
-    if registry
+    // Back up the association we are about to replace. Our own re-registrations
+    // keep the pristine pre-install backup: when `previous` is our CLSID there is
+    // nothing new to save. But a foreign association that took over since our
+    // last install is the state uninstall must restore, so it overwrites the
+    // stale backup; otherwise uninstall would erase the third party's working
+    // association even though the installer promised to restore it.
+    let backup = registry
         .get_string(BACKUP, "")
-        .map_err(RegistrationError::Registry)?
-        .is_none()
-    {
+        .map_err(RegistrationError::Registry)?;
+    if backup.is_none() || overwrote {
         registry
             .set_string(BACKUP, "", previous.as_deref().unwrap_or(""))
             .map_err(RegistrationError::Registry)?;
@@ -404,6 +408,48 @@ mod tests {
         assert_eq!(
             registry.value(&inproc_key(), "").as_deref(),
             Some("C:\\new.dll")
+        );
+    }
+
+    /// L1: a third party that takes the association over after our install is
+    /// the state uninstall must restore. Re-registering over it refreshes the
+    /// backup; the pristine first-only rule still holds for our own updates.
+    #[test]
+    fn re_registration_after_takeover_restores_the_new_handler_on_unregister() {
+        // Initial foreign handler, then our install backs it up.
+        let registry = TestRegistry::with_extension_handler("{OTHER-HANDLER}");
+        register(&registry, DLL, true).unwrap();
+        assert_eq!(
+            registry.value(BACKUP, "").as_deref(),
+            Some("{OTHER-HANDLER}")
+        );
+
+        // A third party takes the association over while we are installed.
+        registry.set_raw(&shell_ex_key(), "", "{OTHER-HANDLER-2}");
+
+        // Our re-register must back up the new foreign handler.
+        let report = register(&registry, DLL, true).unwrap();
+        assert!(report.overwrote_existing);
+        assert_eq!(
+            report.previous_handler.as_deref(),
+            Some("{OTHER-HANDLER-2}")
+        );
+        assert_eq!(
+            registry.value(BACKUP, "").as_deref(),
+            Some("{OTHER-HANDLER-2}"),
+            "the stale backup must be replaced by the new foreign handler"
+        );
+
+        // Uninstall restores the third party, not the first handler and not an
+        // empty (deleted) value.
+        let report = unregister(&registry).unwrap();
+        assert_eq!(
+            report.restored_handler.as_deref(),
+            Some("{OTHER-HANDLER-2}")
+        );
+        assert_eq!(
+            registry.value(&shell_ex_key(), "").as_deref(),
+            Some("{OTHER-HANDLER-2}")
         );
     }
 
