@@ -43,10 +43,21 @@ foreach ($pkg in $metadata.packages) {
         }
     }
     if ($files.Count -eq 0) {
-        Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match $licenseFilePattern } |
-            Sort-Object Name |
-            ForEach-Object { $files.Add($_) }
+        # Sort ordinally. Culture-aware Sort-Object orders LICENSE.txt before
+        # LICENSE-MIT on Windows PowerShell 5.1 but after it on PowerShell 7, so
+        # -Check could never agree across the engines that generate and verify
+        # the bundle. Ordinal order is identical everywhere.
+        $matched = @(
+            Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match $licenseFilePattern }
+        )
+        $matchedNames = [string[]]@($matched | ForEach-Object { $_.Name })
+        if ($matchedNames.Length -gt 0) {
+            [Array]::Sort($matchedNames, [System.StringComparer]::Ordinal)
+            foreach ($name in $matchedNames) {
+                $files.Add(($matched | Where-Object { $_.Name -eq $name })[0])
+            }
+        }
     }
 
     $chunks = New-Object System.Collections.Generic.List[string]
