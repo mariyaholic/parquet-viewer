@@ -109,3 +109,4 @@ if ((Get-CurrentHandler) -ne $Clsid) {
 
 Write-Host "Registered. Restart Explorer (or sign out and back in) to load the preview handler."
 Write-Host "The handler is read-only and performs no network access. Not code-signed yet; SmartScreen may warn."
+exit 0

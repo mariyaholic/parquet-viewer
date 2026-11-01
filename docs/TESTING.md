@@ -71,7 +71,7 @@ These behaviours cannot be verified on this Linux host:
 ```text
 cargo build --release -p parquet-preview-worker -p parquet-preview-windows
 # copy the DLL and worker into one directory
-powershell -ExecutionPolicy Bypass -File installer\Register-ParquetPreview.ps1 -DllPath .\parquet_preview_windows.dll
+powershell -ExecutionPolicy Bypass -File installer\install.ps1 -DllPath .\parquet_preview_windows.dll
 ```
 
 Then select a `.parquet` fixture in Explorer's preview pane, resize the pane,
@@ -110,4 +110,4 @@ Explorer stream input is marshalled to a background thread (`CoMarshalInterThrea
 
 Uninstall leaves shared association keys in place after removing the owned value, avoiding a non-atomic empty-key deletion. Verify real registry behaviour and conflict restoration on Windows, including concurrent changes. The ownership check and value removal themselves are separate registry operations, so concurrent reassignment remains a race; avoid simultaneous association changes during uninstall.
 
-Run `scripts/build-windows.ps1` on Windows and compare independent release builds. Cross-builds do not establish native reproducibility or execute COM. Release outputs must retain LICENSE, NOTICE and THIRD_PARTY.md.
+Run `scripts/build-windows.ps1` on Windows and compare independent release builds. Cross-builds do not establish native reproducibility or execute COM. The release payload must retain LICENSE, NOTICE, THIRD_PARTY.md and THIRD_PARTY_LICENSES.txt, the per-user registration scripts, and the single `parquet-preview-<version>-x64.zip` archive.
