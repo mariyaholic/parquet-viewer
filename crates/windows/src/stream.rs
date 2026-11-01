@@ -80,6 +80,67 @@ pub unsafe fn stream_size(stream: *mut c_void) -> Result<u64, String> {
     Ok(stat.cbSize)
 }
 
+/// Marshal the stream so another thread can read it without copying the file
+/// into memory. Must be called on a COM-initialized thread that owns a
+/// reference to `stream`. Returns a marshalled `IStream` pointer; pass it to
+/// `unmarshal` on the destination thread, which releases it.
+pub unsafe fn marshal(stream: *mut c_void) -> Result<*mut c_void, String> {
+    let mut marshalled: *mut c_void = std::ptr::null_mut();
+    let hr = ffi::CoMarshalInterThreadInterfaceInStream(&ffi::IID_ISTREAM, stream, &mut marshalled);
+    if hr < 0 {
+        return Err(format!(
+            "CoMarshalInterThreadInterfaceInStream failed (0x{hr:08X})"
+        ));
+    }
+    Ok(marshalled)
+}
+
+/// A stream unmarshalled onto this thread, together with the COM apartment it
+/// was created in. Dropping it releases the stream and tears the apartment
+/// down.
+pub struct UnmarshalledStream {
+    stream: *mut c_void,
+}
+
+impl UnmarshalledStream {
+    pub fn as_ptr(&self) -> *mut c_void {
+        self.stream
+    }
+}
+
+impl Drop for UnmarshalledStream {
+    fn drop(&mut self) {
+        unsafe {
+            release(self.stream);
+            ffi::CoUninitialize();
+        }
+    }
+}
+
+/// Unmarshal a stream produced by `marshal` onto the calling thread.
+///
+/// `CoInitializeEx` is called first (the apartment is torn down by the returned
+/// value's `Drop`). The marshalled stream is consumed either way, so a failure
+/// here does not leak it.
+pub unsafe fn unmarshal(marshalled: *mut c_void) -> Result<UnmarshalledStream, String> {
+    let hr = ffi::CoInitializeEx(std::ptr::null_mut(), ffi::COINIT_MULTITHREADED);
+    if hr < 0 {
+        // `unmarshal` never got the chance to consume the stream; release it.
+        release(marshalled);
+        return Err(format!("CoInitializeEx failed (0x{hr:08X})"));
+    }
+    let mut stream: *mut c_void = std::ptr::null_mut();
+    let hr = ffi::CoGetInterfaceAndReleaseStream(marshalled, &ffi::IID_ISTREAM, &mut stream);
+    if hr < 0 {
+        // CoGetInterfaceAndReleaseStream released the marshalled stream.
+        ffi::CoUninitialize();
+        return Err(format!(
+            "CoGetInterfaceAndReleaseStream failed (0x{hr:08X})"
+        ));
+    }
+    Ok(UnmarshalledStream { stream })
+}
+
 /// Read adapter used only on the owning COM apartment while the handler
 /// owns a reference to the stream.
 pub struct StreamReader {
@@ -120,6 +181,12 @@ impl Read for StreamReader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
+
+    #[link(name = "shlwapi")]
+    extern "system" {
+        fn SHCreateMemStream(init: *const u8, size: u32) -> *mut c_void;
+    }
 
     #[test]
     fn guid_bytes_match_iunknown_layout() {
@@ -128,5 +195,39 @@ mod tests {
             guid.to_registry_string(),
             "{00000000-0000-0000-C000-000000000046}"
         );
+    }
+
+    /// The marshalling contract M1 relies on: a stream created on one thread is
+    /// readable on another after marshal/unmarshal, and the marshalled stream is
+    /// consumed exactly once.
+    #[test]
+    fn a_stream_marshals_across_threads() {
+        let payload: Vec<u8> = (0..=255u8).cycle().take(4096).collect();
+        let stream = unsafe { SHCreateMemStream(payload.as_ptr(), payload.len() as u32) };
+        assert!(!stream.is_null(), "SHCreateMemStream failed");
+
+        // The owning thread must be COM-initialized before marshalling.
+        let hr =
+            unsafe { ffi::CoInitializeEx(std::ptr::null_mut(), ffi::COINIT_APARTMENTTHREADED) };
+        assert!(hr >= 0, "CoInitializeEx failed (0x{hr:08X})");
+        let marshalled = unsafe { marshal(stream) }.expect("marshal the stream");
+        // A raw pointer is not `Send`; it is safe here because the marshalled
+        // stream is explicitly designed to move between apartments.
+        let address = marshalled as usize;
+
+        let handle = std::thread::spawn(move || {
+            let unmarshalled = unsafe { unmarshal(address as *mut c_void) }.expect("unmarshal");
+            let mut reader = unsafe { StreamReader::new(unmarshalled.as_ptr()) };
+            let mut out = Vec::new();
+            reader.read_to_end(&mut out).unwrap();
+            out
+        });
+        let out = handle.join().unwrap();
+        assert_eq!(out, payload);
+
+        unsafe {
+            release(stream);
+            ffi::CoUninitialize();
+        }
     }
 }

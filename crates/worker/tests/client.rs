@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //! End-to-end process test: spawn the real worker binary and drive it.
 
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
-use parquet_preview_client::WorkerClient;
+use parquet_preview_client::{CancelReader, WorkerClient};
 use parquet_preview_core::PreviewOptions;
 use parquet_preview_fixtures as fixtures;
 
@@ -183,4 +185,81 @@ fn killing_the_worker_leaves_no_spool_file() {
         left = spool_files_for(pid);
     }
     assert!(left.is_empty(), "spool file survived the kill: {left:?}");
+}
+
+/// A reader that produces a fixed number of bytes on the fly, so a large
+/// transfer needs neither a fixture file nor a large allocation.
+struct GeneratedBytes {
+    remaining: u64,
+    byte: u8,
+}
+
+impl Read for GeneratedBytes {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let want = (buffer.len() as u64).min(self.remaining) as usize;
+        for slot in &mut buffer[..want] {
+            *slot = self.byte;
+        }
+        self.remaining -= want as u64;
+        Ok(want)
+    }
+}
+
+/// M1: the preview path no longer snapshots the file into RAM, so a stream far
+/// larger than the old 64 MiB ceiling transfers in bounded chunks. 200 MiB is
+/// produced on the fly and streamed to the worker; the worker accepts all of it.
+#[test]
+fn streams_a_two_hundred_mib_reader_without_a_snapshot() {
+    let size = 200 * 1024 * 1024;
+    let mut client = WorkerClient::spawn(&worker_binary(), "large-stream-test").unwrap();
+    let cancel = AtomicBool::new(false);
+    let mut source = GeneratedBytes {
+        remaining: size,
+        byte: 0x5a,
+    };
+    let mut reader = CancelReader::new(&mut source, &cancel);
+    client.open_stream(&mut reader, size).unwrap();
+    client.kill();
+}
+
+/// M1: the transfer stops between chunks once the preview is replaced, so a slow
+/// `IStream` cannot pin the pane. Fails before the fix (the whole stream was
+/// read into RAM first, so cancellation could not be observed mid-transfer).
+#[test]
+fn a_cancelled_transfer_stops_between_chunks() {
+    struct CancelAfterTwoChunks {
+        remaining: u64,
+        cancel: Arc<AtomicBool>,
+        reads: u32,
+    }
+
+    impl Read for CancelAfterTwoChunks {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            self.reads += 1;
+            if self.reads > 2 {
+                self.cancel.store(true, Ordering::Relaxed);
+            }
+            let want = (buffer.len() as u64).min(self.remaining) as usize;
+            buffer[..want].fill(0x21);
+            self.remaining -= want as u64;
+            Ok(want)
+        }
+    }
+
+    // Enough for many chunks, so cancellation lands mid-transfer.
+    let size = 8 * 1024 * 1024;
+    let mut client = WorkerClient::spawn(&worker_binary(), "cancel-stream-test").unwrap();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mut source = CancelAfterTwoChunks {
+        remaining: size,
+        cancel: cancel.clone(),
+        reads: 0,
+    };
+    let mut reader = CancelReader::new(&mut source, &cancel);
+    let result = client.open_stream(&mut reader, size);
+    assert!(
+        result.is_err(),
+        "the transfer completed even though cancellation was requested"
+    );
+    client.kill();
 }

@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Preview pane window and worker orchestration.
 //!
-//! `DoPreview` snapshots the host stream on its owning apartment; a background thread sends the
-//! snapshot to the isolated worker and posts the rendered text into a read-only
-//! edit control. Replacing the selection kills the worker job and joins the
-//! thread.
+//! `DoPreview` marshals the host stream for a background thread (no RAM
+//! snapshot); that thread streams it to the isolated worker in bounded chunks
+//! and posts the rendered text into a read-only edit control. Replacing the
+//! selection kills the worker job and signals the transfer to stop.
 
 use std::ffi::c_void;
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
 
-use parquet_preview_client::WorkerClient;
+use parquet_preview_client::{CancelReader, WorkerClient};
 use parquet_preview_core::about::about_text;
 use parquet_preview_core::PreviewOptions;
 
-use crate::copy_stream::{snapshot, MAX_SNAPSHOT_BYTES};
 use crate::ffi;
 use crate::job::JobGuard;
 use crate::stream::{self, StreamReader};
@@ -155,16 +155,18 @@ impl HandlerState {
                 return;
             }
         };
-        let mut reader = unsafe { StreamReader::new(stream) };
-        let bytes = match snapshot(&mut reader, size, MAX_SNAPSHOT_BYTES) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                self.set_text(&error_text(&format!(
-                    "cannot copy the supplied stream: {error}"
-                )));
-                return;
-            }
-        };
+        // Marshal the stream so a background thread can read it without copying
+        // the file into RAM. Standard shell streams marshal; a stream that does
+        // not is read here in bounded chunks instead.
+        match unsafe { stream::marshal(stream) } {
+            Ok(marshalled) => self.start_marshalled_preview(marshalled, size),
+            Err(_) => self.start_inline_preview(stream, size),
+        }
+    }
+
+    /// Primary path: the marshalled stream is unmarshalled on a background
+    /// thread, which streams it to the worker in bounded chunks.
+    fn start_marshalled_preview(&mut self, marshalled: *mut c_void, size: u64) {
         let cancelled = Arc::new(AtomicBool::new(false));
         let job = Arc::new(Mutex::new(None));
         let parent = self.hwnd;
@@ -174,10 +176,11 @@ impl HandlerState {
         }
         let cancel = cancelled.clone();
         let job_slot = job.clone();
+        let pointer = SendPtr(marshalled);
         self.cancel = cancelled;
         self.job = job;
         self.thread = Some(std::thread::spawn(move || {
-            let text = match run_preview(bytes, &cancel, &job_slot) {
+            let text = match run_preview(pointer, size, &cancel, &job_slot) {
                 Ok(text) => text,
                 Err(error) => error_text(&error),
             };
@@ -193,6 +196,48 @@ impl HandlerState {
                 job.take();
             }
         }));
+    }
+
+    /// Fallback for a stream that cannot be marshalled: stream it from this
+    /// thread in bounded chunks. Memory stays bounded (the snapshot and its
+    /// 64 MiB ceiling are gone either way); only the host apartment is occupied
+    /// for the duration, as it was before this fix.
+    fn start_inline_preview(&mut self, stream: *mut c_void, size: u64) {
+        let worker = match worker_path() {
+            Ok(worker) => worker,
+            Err(error) => {
+                self.set_text(&error_text(&error));
+                return;
+            }
+        };
+        let client = match WorkerClient::spawn(&worker, "explorer-preview") {
+            Ok(client) => client,
+            Err(error) => {
+                self.set_text(&error_text(&format!(
+                    "cannot start the isolated worker: {error}"
+                )));
+                return;
+            }
+        };
+        match JobGuard::create_for_pid(client.pid()) {
+            Ok(job) => {
+                if let Ok(mut slot) = self.job.lock() {
+                    *slot = Some(job);
+                }
+            }
+            Err(error) => {
+                self.set_text(&error_text(&format!("cannot apply worker limits: {error}")));
+                return;
+            }
+        }
+        self.cancel = Arc::new(AtomicBool::new(false));
+        let cancel = self.cancel.clone();
+        let mut reader = unsafe { StreamReader::new(stream) };
+        let text = match pump_and_render(client, &mut reader, size, &cancel) {
+            Ok(text) => text,
+            Err(error) => error_text(&error),
+        };
+        self.set_text(&text);
     }
 
     pub fn unload(&mut self) {
@@ -306,11 +351,27 @@ impl Drop for HandlerState {
     }
 }
 
+/// A raw interface pointer moved to a background thread.
+///
+/// Safe by the same argument as `unsafe impl Send for HandlerState`: the pointer
+/// names a COM object that was explicitly marshalled for the destination thread,
+/// and the thread is the sole owner of the reference.
+struct SendPtr(*mut c_void);
+
+unsafe impl Send for SendPtr {}
+
+/// Background-thread half of the marshalled preview path.
 fn run_preview(
-    bytes: Vec<u8>,
+    marshalled: SendPtr,
+    size: u64,
     cancel: &AtomicBool,
     job_slot: &Mutex<Option<JobGuard>>,
 ) -> Result<String, String> {
+    // Unmarshalling also initializes COM for this thread; the returned value
+    // releases the stream and tears the apartment down when it drops (after the
+    // worker client, so the worker is gone first).
+    let stream = unsafe { stream::unmarshal(marshalled.0) }?;
+    unsafe { stream::seek_to_start(stream.as_ptr()) }?;
     let worker = worker_path()?;
     if cancel.load(Ordering::Relaxed) {
         return Err("preview was cancelled".to_string());
@@ -326,9 +387,20 @@ fn run_preview(
         client.kill();
         return Err("preview was cancelled".to_string());
     }
+    let mut reader = unsafe { StreamReader::new(stream.as_ptr()) };
+    pump_and_render(client, &mut reader, size, cancel)
+}
 
-    let size = bytes.len() as u64;
-    let mut reader = std::io::Cursor::new(bytes);
+/// Stream `reader` into the worker in bounded chunks and render it. The
+/// transfer stops between chunks as soon as `cancel` is set, so replacing the
+/// selection interrupts a slow read without changing the protocol.
+fn pump_and_render(
+    mut client: WorkerClient,
+    reader: &mut dyn Read,
+    size: u64,
+    cancel: &AtomicBool,
+) -> Result<String, String> {
+    let mut reader = CancelReader::new(reader, cancel);
     client
         .open_stream(&mut reader, size)
         .map_err(|e| format!("cannot transfer the stream: {e}"))?;

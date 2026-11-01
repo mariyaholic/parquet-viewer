@@ -949,6 +949,14 @@ mod e2e {
         );
         std::env::set_var("PARQUET_PREVIEW_WORKER", &worker);
 
+        // COM must be initialized on this thread for DoPreview to marshal the
+        // stream to the background thread (the primary M1 path). This mirrors
+        // the STA Explorer runs the handler in; without it the handler falls
+        // back to an inline transfer and this harness would not cover marshalling.
+        let coinit =
+            unsafe { ffi::CoInitializeEx(std::ptr::null_mut(), ffi::COINIT_APARTMENTTHREADED) };
+        assert!(coinit >= 0, "CoInitializeEx failed (0x{coinit:08X})");
+
         let bytes = std::fs::read(fixture("trades.parquet")).expect("read trades.parquet");
         let parent = ParentWindow::new();
         let before_spools = spool_files();
@@ -1148,6 +1156,7 @@ mod e2e {
             release(factory);
             crate::stream::release(stream);
             release(frame as *mut c_void);
+            ffi::CoUninitialize();
         }
     }
 }

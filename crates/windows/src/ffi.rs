@@ -52,6 +52,11 @@ pub const STGM_READWRITE: u32 = 0x0000_0002;
 pub const STREAM_SEEK_SET: u32 = 0;
 pub const STATFLAG_NONAME: u32 = 1;
 
+// `CoInitializeEx` apartment models.
+pub const COINIT_MULTITHREADED: u32 = 0x0;
+#[allow(dead_code)] // the marshalling test initializes an apartment-threaded thread
+pub const COINIT_APARTMENTTHREADED: u32 = 0x2;
+
 pub const WM_SIZE: u32 = 0x0005;
 pub const WM_ERASEBKGND: u32 = 0x0014;
 pub const WM_DESTROY: u32 = 0x0002;
@@ -149,6 +154,7 @@ pub const IID_IPREVIEWHANDLERFRAME: GUID = GUID::from_u128(0xfec87aaf_35f9_447a_
 pub const IID_IPREVIEWHANDLER: GUID = GUID::from_u128(0x8895b1c6_b41f_4c1c_a562_0d564250836f);
 pub const IID_IPREVIEWHANDLERVISUALS: GUID =
     GUID::from_u128(0x196bf9a5_b346_4ef0_aa1e_5dcdb76768b1);
+pub const IID_ISTREAM: GUID = GUID::from_u128(0x0000000c_0000_0000_c000_000000000046);
 pub const CLSID_PARQUET_PREVIEW: GUID = GUID::from_u128(0x7f2c9e4a_2b6d_4b7e_9c3a_5d1e8a0f6b21);
 
 #[repr(C)]
@@ -322,6 +328,22 @@ extern "system" {
     pub fn GetStockObject(object: u32) -> HGDIOBJ;
     pub fn SetTextColor(dc: HDC, color: COLORREF) -> COLORREF;
     pub fn SetBkColor(dc: HDC, color: COLORREF) -> COLORREF;
+}
+
+#[link(name = "ole32")]
+extern "system" {
+    pub fn CoInitializeEx(reserved: *mut c_void, coinit: u32) -> HRESULT;
+    pub fn CoUninitialize();
+    pub fn CoMarshalInterThreadInterfaceInStream(
+        riid: *const GUID,
+        unknown: *mut c_void,
+        stream: *mut *mut c_void,
+    ) -> HRESULT;
+    pub fn CoGetInterfaceAndReleaseStream(
+        stream: *mut c_void,
+        riid: *const GUID,
+        out: *mut *mut c_void,
+    ) -> HRESULT;
 }
 
 #[link(name = "advapi32")]
