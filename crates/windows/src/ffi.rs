@@ -23,6 +23,8 @@ pub type HCURSOR = isize;
 pub type HBRUSH = isize;
 pub type HMENU = isize;
 pub type HFONT = isize;
+pub type HGDIOBJ = isize;
+pub type HDC = isize;
 pub type HKEY = isize;
 pub type HANDLE = isize;
 pub type COLORREF = u32;
@@ -50,11 +52,27 @@ pub const STGM_READWRITE: u32 = 0x0000_0002;
 pub const STREAM_SEEK_SET: u32 = 0;
 pub const STATFLAG_NONAME: u32 = 1;
 
+// `CoInitializeEx` apartment models.
+pub const COINIT_MULTITHREADED: u32 = 0x0;
+#[allow(dead_code)] // the marshalling test initializes an apartment-threaded thread
+pub const COINIT_APARTMENTTHREADED: u32 = 0x2;
+
 pub const WM_SIZE: u32 = 0x0005;
 pub const WM_ERASEBKGND: u32 = 0x0014;
 pub const WM_DESTROY: u32 = 0x0002;
 pub const WM_KEYDOWN: u32 = 0x0100;
 pub const VK_F1: usize = 0x70;
+
+pub const WM_SETFONT: u32 = 0x0030;
+#[allow(dead_code)] // read back by the e2e harness
+pub const WM_GETFONT: u32 = 0x0031;
+pub const WM_CTLCOLORSTATIC: u32 = 0x0138;
+
+// Stock objects for `GetStockObject`.
+pub const DEFAULT_GUI_FONT: u32 = 17;
+#[allow(dead_code)] // a distinct font for the e2e harness
+pub const ANSI_FIXED_FONT: u32 = 11;
+pub const NULL_BRUSH: u32 = 5;
 
 pub const MB_OK: u32 = 0x0000_0000;
 pub const MB_ICONINFORMATION: u32 = 0x0000_0040;
@@ -131,9 +149,12 @@ impl GUID {
 pub const IID_IUNKNOWN: GUID = GUID::from_u128(0x00000000_0000_0000_c000_000000000046);
 pub const IID_ICLASSFACTORY: GUID = GUID::from_u128(0x00000001_0000_0000_c000_000000000046);
 pub const IID_IINITIALIZEWITHSTREAM: GUID = GUID::from_u128(0xb824b49d_22ac_4161_ac8a_9916e8fa3f7f);
+pub const IID_IOBJECTWITHSITE: GUID = GUID::from_u128(0xfc4801a3_2ba9_11cf_a229_00aa003d7352);
+pub const IID_IPREVIEWHANDLERFRAME: GUID = GUID::from_u128(0xfec87aaf_35f9_447a_ad79_43a103d4514d);
 pub const IID_IPREVIEWHANDLER: GUID = GUID::from_u128(0x8895b1c6_b41f_4c1c_a562_0d564250836f);
 pub const IID_IPREVIEWHANDLERVISUALS: GUID =
     GUID::from_u128(0x196bf9a5_b346_4ef0_aa1e_5dcdb76768b1);
+pub const IID_ISTREAM: GUID = GUID::from_u128(0x0000000c_0000_0000_c000_000000000046);
 pub const CLSID_PARQUET_PREVIEW: GUID = GUID::from_u128(0x7f2c9e4a_2b6d_4b7e_9c3a_5d1e8a0f6b21);
 
 #[repr(C)]
@@ -243,7 +264,6 @@ extern "system" {
     pub fn GetModuleHandleExW(flags: u32, name: *const u16, module: *mut HMODULE) -> BOOL;
     pub fn GetModuleFileNameW(module: HMODULE, buffer: *mut u16, size: u32) -> u32;
     pub fn OpenProcess(access: u32, inherit: BOOL, pid: u32) -> HANDLE;
-    pub fn TerminateProcess(process: HANDLE, code: u32) -> BOOL;
     pub fn CloseHandle(handle: HANDLE) -> BOOL;
     pub fn CreateJobObjectW(attributes: *mut c_void, name: *const u16) -> HANDLE;
     pub fn SetInformationJobObject(
@@ -285,6 +305,8 @@ extern "system" {
         flags: u32,
     ) -> BOOL;
     pub fn SetWindowTextW(window: HWND, text: *const u16) -> BOOL;
+    pub fn SendMessageW(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT;
+    pub fn InvalidateRect(window: HWND, rect: *const RECT, erase: BOOL) -> BOOL;
     pub fn PostMessageW(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> BOOL;
     pub fn GetClientRect(window: HWND, rect: *mut RECT) -> BOOL;
     pub fn MessageBoxW(window: HWND, text: *const u16, caption: *const u16, flags: u32) -> i32;
@@ -299,6 +321,29 @@ extern "system" {
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> LRESULT;
+}
+
+#[link(name = "gdi32")]
+extern "system" {
+    pub fn GetStockObject(object: u32) -> HGDIOBJ;
+    pub fn SetTextColor(dc: HDC, color: COLORREF) -> COLORREF;
+    pub fn SetBkColor(dc: HDC, color: COLORREF) -> COLORREF;
+}
+
+#[link(name = "ole32")]
+extern "system" {
+    pub fn CoInitializeEx(reserved: *mut c_void, coinit: u32) -> HRESULT;
+    pub fn CoUninitialize();
+    pub fn CoMarshalInterThreadInterfaceInStream(
+        riid: *const GUID,
+        unknown: *mut c_void,
+        stream: *mut *mut c_void,
+    ) -> HRESULT;
+    pub fn CoGetInterfaceAndReleaseStream(
+        stream: *mut c_void,
+        riid: *const GUID,
+        out: *mut *mut c_void,
+    ) -> HRESULT;
 }
 
 #[link(name = "advapi32")]

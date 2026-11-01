@@ -1,0 +1,24 @@
+# cargo-about configuration (https://github.com/EmbarkStudios/cargo-about).
+#
+# This repository's canonical, offline generator is
+# scripts/generate-third-party-licenses.ps1: opencode.json denies `cargo install`
+# and network access, so cargo-about cannot be installed here. This file exists
+# so the same artefact can be regenerated anywhere cargo-about is available:
+#
+#   cargo about generate --config about.toml about.hbs > THIRD_PARTY_LICENSES.txt
+
+targets = ["x86_64-pc-windows-gnu"]
+
+accepted = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]

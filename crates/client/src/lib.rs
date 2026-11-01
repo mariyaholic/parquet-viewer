@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Spawn and drive the isolated worker over its versioned protocol.
 //!
-//! Cancellation is by process termination: the host keeps the child handle and
-//! a watchdog kills it when a preview is replaced or exceeds its deadline.
+//! Cancellation is by process termination plus transfer interruption: the host
+//! keeps the child handle and kills it when a preview is replaced or the client
+//! is dropped, and a stream transfer stops between chunks once cancellation is
+//! requested. There is no wall-clock deadline: a single stuck decode runs until
+//! the next replacement.
 
 use std::io::{BufReader, Read};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use parquet_preview_core::baseline::BaselineSpec;
 use parquet_preview_core::market::{MarketProfile, MarketReport};
@@ -286,5 +290,60 @@ impl Drop for WorkerClient {
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
+    }
+}
+
+/// Wraps a reader so a long stream transfer can be interrupted between chunks.
+///
+/// The preview loop wraps the host `IStream` reader with this; when the flag is
+/// set, the next `read` fails and `WorkerClient::open_stream` returns an error
+/// instead of continuing. The protocol is unchanged, and bounded memory is
+/// preserved: only the chunk buffer is live at any time.
+pub struct CancelReader<'a> {
+    inner: &'a mut dyn Read,
+    cancel: &'a AtomicBool,
+}
+
+impl<'a> CancelReader<'a> {
+    pub fn new(inner: &'a mut dyn Read, cancel: &'a AtomicBool) -> Self {
+        Self { inner, cancel }
+    }
+}
+
+impl Read for CancelReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        if self.cancel.load(Ordering::Relaxed) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "the preview was cancelled",
+            ));
+        }
+        self.inner.read(buffer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn cancel_reader_passes_through_until_cancelled() {
+        let mut source = Cursor::new(vec![7u8; 256 * 1024]);
+        let cancel = AtomicBool::new(false);
+        let mut reader = CancelReader::new(&mut source, &cancel);
+        let mut sink = Vec::new();
+        std::io::copy(&mut reader, &mut sink).unwrap();
+        assert_eq!(sink.len(), 256 * 1024);
+        assert!(sink.iter().all(|byte| *byte == 7));
+
+        // Once cancellation is requested the next read fails rather than
+        // returning more of the stream.
+        cancel.store(true, Ordering::Relaxed);
+        let mut buffer = [0u8; 16];
+        assert_eq!(
+            reader.read(&mut buffer).unwrap_err().kind(),
+            std::io::ErrorKind::Interrupted
+        );
     }
 }

@@ -80,7 +80,6 @@ pub trait Registry {
     fn set_string(&self, key: &str, name: &str, value: &str) -> Result<(), String>;
     fn delete_tree(&self, key: &str) -> Result<(), String>;
     fn delete_value(&self, key: &str, name: &str) -> Result<(), String>;
-    fn delete_empty_key(&self, key: &str) -> Result<(), String>;
 }
 
 /// In-memory registry for tests, mutable via interior mutability.
@@ -138,9 +137,6 @@ impl Registry for TestRegistry {
         self.remove_raw(key, name);
         Ok(())
     }
-    fn delete_empty_key(&self, _key: &str) -> Result<(), String> {
-        Ok(())
-    }
     fn get_string(&self, key: &str, name: &str) -> Result<Option<String>, String> {
         Ok(self.value(key, name))
     }
@@ -157,6 +153,29 @@ impl Registry for TestRegistry {
             .unwrap()
             .retain(|(existing, _), _| existing != key && !existing.starts_with(&prefix));
         Ok(())
+    }
+}
+
+/// Best-effort restore of the `.parquet` association after a failed `register`.
+///
+/// ShellEx is written last, so this fires only when the association write itself
+/// left our CLSID behind. It never overwrites a value that is not ours, and a
+/// restore failure is swallowed so the caller sees the original error.
+fn restore_shellex(registry: &dyn Registry, shell: &str, previous: Option<&str>) {
+    if let Ok(current) = registry.get_string(shell, "") {
+        if current
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case(CLSID))
+        {
+            match previous {
+                Some(previous) if !previous.is_empty() => {
+                    let _ = registry.set_string(shell, "", previous);
+                }
+                _ => {
+                    let _ = registry.delete_value(shell, "");
+                }
+            }
+        }
     }
 }
 
@@ -185,12 +204,16 @@ pub fn register(
         return Err(RegistrationError::Conflict(previous.unwrap_or_default()));
     }
 
-    // Preserve the first backup only; updates must not replace the original.
-    if registry
+    // Back up the association we are about to replace. Our own re-registrations
+    // keep the pristine pre-install backup: when `previous` is our CLSID there is
+    // nothing new to save. But a foreign association that took over since our
+    // last install is the state uninstall must restore, so it overwrites the
+    // stale backup; otherwise uninstall would erase the third party's working
+    // association even though the installer promised to restore it.
+    let backup = registry
         .get_string(BACKUP, "")
-        .map_err(RegistrationError::Registry)?
-        .is_none()
-    {
+        .map_err(RegistrationError::Registry)?;
+    if backup.is_none() || overwrote {
         registry
             .set_string(BACKUP, "", previous.as_deref().unwrap_or(""))
             .map_err(RegistrationError::Registry)?;
@@ -198,24 +221,37 @@ pub fn register(
 
     // Microsoft, "How to register a preview handler": register the surrogate
     // AppID and list the handler under PreviewHandlers as well as ShellEx.
-    registry
-        .set_string(&clsid_key(), "AppID", PREVHOST_APPID)
-        .map_err(RegistrationError::Registry)?;
-    registry
-        .set_string(&clsid_key(), "DisplayName", DISPLAY_NAME)
-        .map_err(RegistrationError::Registry)?;
-    registry
-        .set_string(PREVIEW_HANDLERS, CLSID, DISPLAY_NAME)
-        .map_err(RegistrationError::Registry)?;
-    registry
-        .set_string(&shell, "", CLSID)
-        .map_err(RegistrationError::Registry)?;
-    registry
-        .set_string(&inproc_key(), "", dll_path)
-        .map_err(RegistrationError::Registry)?;
-    registry
-        .set_string(&inproc_key(), "ThreadingModel", "Both")
-        .map_err(RegistrationError::Registry)?;
+    //
+    // Order matters. The server definition (CLSID + InprocServer32) is written
+    // before the `.parquet` association, so a failure part-way through never
+    // leaves `.parquet` pointing at a CLSID with no registered server. ShellEx is
+    // written last; on any failure the previous association is restored
+    // best-effort (a full transactional registry writer is out of scope here).
+    let outcome: Result<(), RegistrationError> = (|| {
+        registry
+            .set_string(&clsid_key(), "AppID", PREVHOST_APPID)
+            .map_err(RegistrationError::Registry)?;
+        registry
+            .set_string(&clsid_key(), "DisplayName", DISPLAY_NAME)
+            .map_err(RegistrationError::Registry)?;
+        registry
+            .set_string(&inproc_key(), "", dll_path)
+            .map_err(RegistrationError::Registry)?;
+        registry
+            .set_string(&inproc_key(), "ThreadingModel", "Apartment")
+            .map_err(RegistrationError::Registry)?;
+        registry
+            .set_string(PREVIEW_HANDLERS, CLSID, DISPLAY_NAME)
+            .map_err(RegistrationError::Registry)?;
+        registry
+            .set_string(&shell, "", CLSID)
+            .map_err(RegistrationError::Registry)?;
+        Ok(())
+    })();
+    if let Err(error) = outcome {
+        restore_shellex(registry, &shell, previous.as_deref());
+        return Err(error);
+    }
 
     Ok(RegistrationReport {
         handler_clsid: CLSID.to_string(),
@@ -260,18 +296,14 @@ pub fn unregister(registry: &dyn Registry) -> Result<UnregistrationReport, Regis
                     restored = Some(previous.to_string());
                 }
                 _ => {
+                    // Only the association value is removed; the empty keys are
+                    // left in place (see the uninstall note in the README). There
+                    // is no atomic "delete only if empty" registry operation, so
+                    // pruning them risks deleting a value another process added
+                    // between the emptiness check and the delete.
                     registry
                         .delete_value(&shell, "")
                         .map_err(RegistrationError::Registry)?;
-                    for key in [
-                        shell.as_str(),
-                        r"Software\Classes\.parquet\ShellEx",
-                        r"Software\Classes\.parquet",
-                    ] {
-                        registry
-                            .delete_empty_key(key)
-                            .map_err(RegistrationError::Registry)?;
-                    }
                 }
             }
         } else {
@@ -303,6 +335,43 @@ mod tests {
 
     const DLL: &str = r"C:\Program Files\ParquetPreview\parquet_preview.dll";
 
+    /// Wraps a `TestRegistry` and fails the `set_string` whose key and name
+    /// match a target. Key-based (not call-count based) so the test does not
+    /// depend on the write order the fix is about to change.
+    struct FailsOnWrite {
+        inner: TestRegistry,
+        target_key: String,
+        target_name: String,
+    }
+
+    impl FailsOnWrite {
+        fn new(inner: TestRegistry, key: &str, name: &str) -> Self {
+            Self {
+                inner,
+                target_key: key.to_string(),
+                target_name: name.to_string(),
+            }
+        }
+    }
+
+    impl Registry for FailsOnWrite {
+        fn get_string(&self, key: &str, name: &str) -> Result<Option<String>, String> {
+            self.inner.get_string(key, name)
+        }
+        fn set_string(&self, key: &str, name: &str, value: &str) -> Result<(), String> {
+            if key == self.target_key && name == self.target_name {
+                return Err("injected registry failure".to_string());
+            }
+            self.inner.set_string(key, name, value)
+        }
+        fn delete_tree(&self, key: &str) -> Result<(), String> {
+            self.inner.delete_tree(key)
+        }
+        fn delete_value(&self, key: &str, name: &str) -> Result<(), String> {
+            self.inner.delete_value(key, name)
+        }
+    }
+
     #[test]
     fn fresh_registration_sets_values() {
         let registry = TestRegistry::new();
@@ -313,7 +382,7 @@ mod tests {
         assert_eq!(registry.value(&inproc_key(), "").as_deref(), Some(DLL));
         assert_eq!(
             registry.value(&inproc_key(), "ThreadingModel").as_deref(),
-            Some("Both")
+            Some("Apartment")
         );
         assert_eq!(registry.value(BACKUP, "").as_deref(), Some(""));
         assert_eq!(
@@ -412,6 +481,97 @@ mod tests {
         assert_eq!(
             registry.value(&inproc_key(), "").as_deref(),
             Some("C:\\new.dll")
+        );
+    }
+
+    /// L1: a third party that takes the association over after our install is
+    /// the state uninstall must restore. Re-registering over it refreshes the
+    /// backup; the pristine first-only rule still holds for our own updates.
+    #[test]
+    fn re_registration_after_takeover_restores_the_new_handler_on_unregister() {
+        // Initial foreign handler, then our install backs it up.
+        let registry = TestRegistry::with_extension_handler("{OTHER-HANDLER}");
+        register(&registry, DLL, true).unwrap();
+        assert_eq!(
+            registry.value(BACKUP, "").as_deref(),
+            Some("{OTHER-HANDLER}")
+        );
+
+        // A third party takes the association over while we are installed.
+        registry.set_raw(&shell_ex_key(), "", "{OTHER-HANDLER-2}");
+
+        // Our re-register must back up the new foreign handler.
+        let report = register(&registry, DLL, true).unwrap();
+        assert!(report.overwrote_existing);
+        assert_eq!(
+            report.previous_handler.as_deref(),
+            Some("{OTHER-HANDLER-2}")
+        );
+        assert_eq!(
+            registry.value(BACKUP, "").as_deref(),
+            Some("{OTHER-HANDLER-2}"),
+            "the stale backup must be replaced by the new foreign handler"
+        );
+
+        // Uninstall restores the third party, not the first handler and not an
+        // empty (deleted) value.
+        let report = unregister(&registry).unwrap();
+        assert_eq!(
+            report.restored_handler.as_deref(),
+            Some("{OTHER-HANDLER-2}")
+        );
+        assert_eq!(
+            registry.value(&shell_ex_key(), "").as_deref(),
+            Some("{OTHER-HANDLER-2}")
+        );
+    }
+
+    /// L2: the `.parquet` association is written after the server definition,
+    /// so a failure writing the in-process server leaves the existing third
+    /// party association untouched instead of pointing `.parquet` at a CLSID
+    /// with no registered server.
+    #[test]
+    fn register_keeps_shellex_unchanged_when_a_server_write_fails() {
+        let inner = TestRegistry::with_extension_handler("{OTHER}");
+        let registry = FailsOnWrite::new(inner.clone(), &inproc_key(), "");
+        let error = register(&registry, DLL, true).unwrap_err();
+        assert!(matches!(error, RegistrationError::Registry(_)));
+        assert_eq!(
+            inner.value(&shell_ex_key(), "").as_deref(),
+            Some("{OTHER}"),
+            "the association must be untouched when a server write fails"
+        );
+        assert_eq!(
+            inner.value(&inproc_key(), ""),
+            None,
+            "the failed server default must not be recorded"
+        );
+    }
+
+    /// L2 rollback: `restore_shellex` puts the previous handler back only when
+    /// the current value is ours, and removes our value when there was none.
+    #[test]
+    fn restore_shellex_puts_the_previous_handler_back() {
+        let registry = TestRegistry::new();
+        registry.set_raw(&shell_ex_key(), "", CLSID);
+        restore_shellex(&registry, &shell_ex_key(), Some("{OTHER}"));
+        assert_eq!(
+            registry.value(&shell_ex_key(), "").as_deref(),
+            Some("{OTHER}")
+        );
+
+        let registry = TestRegistry::new();
+        registry.set_raw(&shell_ex_key(), "", CLSID);
+        restore_shellex(&registry, &shell_ex_key(), None);
+        assert_eq!(registry.value(&shell_ex_key(), ""), None);
+
+        // A value that is not ours is never overwritten.
+        let registry = TestRegistry::new();
+        registry.set_raw(&shell_ex_key(), "", "{SOMEONE-ELSE}");
+        restore_shellex(&registry, &shell_ex_key(), Some("{OTHER}"));
+        assert_eq!(
+            registry.value(&shell_ex_key(), "").as_deref(),
+            Some("{SOMEONE-ELSE}")
         );
     }
 

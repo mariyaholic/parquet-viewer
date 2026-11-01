@@ -19,12 +19,6 @@ impl Registry for Win32Registry {
         }
     }
 
-    fn delete_empty_key(&self, _key: &str) -> Result<(), String> {
-        // Registry has no atomic "delete only if no values or subkeys" operation.
-        // Leaving shared keys avoids deleting a value added after an emptiness check.
-        Ok(())
-    }
-
     fn get_string(&self, key: &str, name: &str) -> Result<Option<String>, String> {
         let key = ffi::wide(key);
         let name = if name.is_empty() {
@@ -151,22 +145,4 @@ pub fn current_module_path() -> Result<String, String> {
         return Err("module path is too long".to_string());
     }
     String::from_utf16(&buffer[..length]).map_err(|_| "module path is not UTF-16".to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cleanup_preserves_a_shared_key_and_its_values() {
-        let registry = Win32Registry;
-        let key = format!("Software\\ParquetPreviewTest-{}", std::process::id());
-        registry.set_string(&key, "other-owner", "keep").unwrap();
-        registry.delete_empty_key(&key).unwrap();
-        assert_eq!(
-            registry.get_string(&key, "other-owner").unwrap().as_deref(),
-            Some("keep")
-        );
-        registry.delete_tree(&key).unwrap();
-    }
 }

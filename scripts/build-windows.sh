@@ -12,5 +12,5 @@ export RUSTFLAGS
 cargo build --offline --locked --release --target x86_64-pc-windows-gnu -p parquet-preview-windows -p parquet-preview-worker -p parquet-preview-cli
 mkdir -p "$DIST_DIR"
 cp "$CARGO_TARGET_DIR/x86_64-pc-windows-gnu/release/parquet_preview_windows.dll" "$CARGO_TARGET_DIR/x86_64-pc-windows-gnu/release/parquet-preview-worker.exe" "$CARGO_TARGET_DIR/x86_64-pc-windows-gnu/release/parquet-preview-cli.exe" "$DIST_DIR/"
-cp LICENSE NOTICE THIRD_PARTY.md "$DIST_DIR/"
-(cd "$DIST_DIR" && sha256sum parquet_preview_windows.dll parquet-preview-worker.exe parquet-preview-cli.exe LICENSE NOTICE THIRD_PARTY.md > SHA256SUMS)
+cp LICENSE NOTICE THIRD_PARTY.md THIRD_PARTY_LICENSES.txt "$DIST_DIR/"
+(cd "$DIST_DIR" && sha256sum parquet_preview_windows.dll parquet-preview-worker.exe parquet-preview-cli.exe LICENSE NOTICE THIRD_PARTY.md THIRD_PARTY_LICENSES.txt > SHA256SUMS)
