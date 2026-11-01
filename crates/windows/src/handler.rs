@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Preview pane window and worker orchestration.
 //!
-//! `DoPreview` snapshots the host stream on its owning apartment; a background thread sends the
-//! snapshot to the isolated worker and posts the rendered text into a read-only
-//! edit control. Replacing the selection kills the worker job and joins the
-//! thread.
+//! `DoPreview` marshals the host stream for a background thread (no RAM
+//! snapshot); that thread streams it to the isolated worker in bounded chunks
+//! and posts the rendered text into a read-only edit control. Replacing the
+//! selection kills the worker job and signals the transfer to stop.
 
 use std::ffi::c_void;
+use std::io::Read;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
 
-use parquet_preview_client::WorkerClient;
+use parquet_preview_client::{CancelReader, WorkerClient};
 use parquet_preview_core::about::about_text;
 use parquet_preview_core::PreviewOptions;
 
-use crate::copy_stream::{snapshot, MAX_SNAPSHOT_BYTES};
 use crate::ffi;
 use crate::job::JobGuard;
 use crate::stream::{self, StreamReader};
@@ -27,6 +27,24 @@ const WM_APP_PREVIEW_READY: u32 = 0x8000 + 1;
 struct WindowContext {
     edit: ffi::HWND,
     text: Arc<Mutex<Option<String>>>,
+    colors: Arc<Mutex<Colors>>,
+}
+
+/// `IPreviewHandlerVisuals` colours, applied through `WM_CTLCOLORSTATIC`.
+#[derive(Clone, Copy)]
+struct Colors {
+    background: ffi::COLORREF,
+    text_color: ffi::COLORREF,
+}
+
+impl Default for Colors {
+    fn default() -> Self {
+        // Light system colours; Explorer overrides them for dark mode.
+        Self {
+            background: 0x00FF_FFFF,
+            text_color: 0x0000_0000,
+        }
+    }
 }
 
 pub struct HandlerState {
@@ -35,9 +53,10 @@ pub struct HandlerState {
     edit: ffi::HWND,
     thread: Option<JoinHandle<()>>,
     cancel: Arc<AtomicBool>,
-    worker_pid: Arc<AtomicU32>,
     job: Arc<Mutex<Option<JobGuard>>>,
     text: Arc<Mutex<Option<String>>>,
+    font: ffi::HFONT,
+    colors: Arc<Mutex<Colors>>,
 }
 
 // The state is only touched from the COM apartment thread. The worker thread
@@ -52,9 +71,10 @@ impl Default for HandlerState {
             edit: 0,
             thread: None,
             cancel: Arc::new(AtomicBool::new(false)),
-            worker_pid: Arc::new(AtomicU32::new(0)),
             job: Arc::new(Mutex::new(None)),
             text: Arc::new(Mutex::new(None)),
+            font: unsafe { ffi::GetStockObject(ffi::DEFAULT_GUI_FONT) },
+            colors: Arc::new(Mutex::new(Colors::default())),
         }
     }
 }
@@ -82,9 +102,10 @@ impl HandlerState {
             self.destroy_window();
         }
         if self.hwnd == 0 {
-            let (hwnd, edit) = create_window(parent, rect, self.text.clone())?;
+            let (hwnd, edit) = create_window(parent, rect, self.text.clone(), self.colors.clone())?;
             self.hwnd = hwnd;
             self.edit = edit;
+            apply_font(self.edit, self.font);
         }
         self.set_rect(rect);
         Ok(())
@@ -134,18 +155,19 @@ impl HandlerState {
                 return;
             }
         };
-        let mut reader = unsafe { StreamReader::new(stream) };
-        let bytes = match snapshot(&mut reader, size, MAX_SNAPSHOT_BYTES) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                self.set_text(&error_text(&format!(
-                    "cannot copy the supplied stream: {error}"
-                )));
-                return;
-            }
-        };
+        // Marshal the stream so a background thread can read it without copying
+        // the file into RAM. Standard shell streams marshal; a stream that does
+        // not is read here in bounded chunks instead.
+        match unsafe { stream::marshal(stream) } {
+            Ok(marshalled) => self.start_marshalled_preview(marshalled, size),
+            Err(_) => self.start_inline_preview(stream, size),
+        }
+    }
+
+    /// Primary path: the marshalled stream is unmarshalled on a background
+    /// thread, which streams it to the worker in bounded chunks.
+    fn start_marshalled_preview(&mut self, marshalled: *mut c_void, size: u64) {
         let cancelled = Arc::new(AtomicBool::new(false));
-        let worker_pid = Arc::new(AtomicU32::new(0));
         let job = Arc::new(Mutex::new(None));
         let parent = self.hwnd;
         let text_slot = self.text.clone();
@@ -153,13 +175,12 @@ impl HandlerState {
             *current = None;
         }
         let cancel = cancelled.clone();
-        let pid = worker_pid.clone();
         let job_slot = job.clone();
+        let pointer = SendPtr(marshalled);
         self.cancel = cancelled;
-        self.worker_pid = worker_pid;
         self.job = job;
         self.thread = Some(std::thread::spawn(move || {
-            let text = match run_preview(bytes, &cancel, &pid, &job_slot) {
+            let text = match run_preview(pointer, size, &cancel, &job_slot) {
                 Ok(text) => text,
                 Err(error) => error_text(&error),
             };
@@ -171,29 +192,61 @@ impl HandlerState {
                     ffi::PostMessageW(parent, WM_APP_PREVIEW_READY, 0, 0);
                 }
             }
-            pid.store(0, Ordering::Relaxed);
             if let Ok(mut job) = job_slot.lock() {
                 job.take();
             }
         }));
     }
 
+    /// Fallback for a stream that cannot be marshalled: stream it from this
+    /// thread in bounded chunks. Memory stays bounded (the snapshot and its
+    /// 64 MiB ceiling are gone either way); only the host apartment is occupied
+    /// for the duration, as it was before this fix.
+    fn start_inline_preview(&mut self, stream: *mut c_void, size: u64) {
+        let worker = match worker_path() {
+            Ok(worker) => worker,
+            Err(error) => {
+                self.set_text(&error_text(&error));
+                return;
+            }
+        };
+        let client = match WorkerClient::spawn(&worker, "explorer-preview") {
+            Ok(client) => client,
+            Err(error) => {
+                self.set_text(&error_text(&format!(
+                    "cannot start the isolated worker: {error}"
+                )));
+                return;
+            }
+        };
+        match JobGuard::create_for_pid(client.pid()) {
+            Ok(job) => {
+                if let Ok(mut slot) = self.job.lock() {
+                    *slot = Some(job);
+                }
+            }
+            Err(error) => {
+                self.set_text(&error_text(&format!("cannot apply worker limits: {error}")));
+                return;
+            }
+        }
+        self.cancel = Arc::new(AtomicBool::new(false));
+        let cancel = self.cancel.clone();
+        let mut reader = unsafe { StreamReader::new(stream) };
+        let text = match pump_and_render(client, &mut reader, size, &cancel) {
+            Ok(text) => text,
+            Err(error) => error_text(&error),
+        };
+        self.set_text(&text);
+    }
+
     pub fn unload(&mut self) {
         self.cancel.store(true, Ordering::Relaxed);
+        // The job object (kill-on-close) owns termination of the worker; there
+        // is no separate PID kill path to race with PID recycling.
         if let Ok(mut job) = self.job.lock() {
             if let Some(job) = job.take() {
                 job.terminate();
-            }
-        }
-        let pid = self.worker_pid.load(Ordering::Relaxed);
-        if pid != 0 {
-            unsafe {
-                let process =
-                    ffi::OpenProcess(ffi::PROCESS_TERMINATE | ffi::PROCESS_SET_QUOTA, 0, pid);
-                if process != 0 {
-                    ffi::TerminateProcess(process, 1);
-                    ffi::CloseHandle(process);
-                }
             }
         }
         if let Some(thread) = self.thread.take() {
@@ -207,6 +260,36 @@ impl HandlerState {
         if self.edit != 0 {
             unsafe {
                 ffi::SetFocus(self.edit);
+            }
+        }
+    }
+
+    /// Apply Explorer's UI font (`IPreviewHandlerVisuals::SetFont`).
+    pub fn set_font(&mut self, font: ffi::HFONT) {
+        self.font = font;
+        apply_font(self.edit, font);
+    }
+
+    /// Apply Explorer's background colour (`SetBackgroundColor`).
+    pub fn set_background_color(&mut self, color: ffi::COLORREF) {
+        if let Ok(mut colors) = self.colors.lock() {
+            colors.background = color;
+        }
+        self.repaint();
+    }
+
+    /// Apply Explorer's text colour (`SetTextColor`).
+    pub fn set_text_color(&mut self, color: ffi::COLORREF) {
+        if let Ok(mut colors) = self.colors.lock() {
+            colors.text_color = color;
+        }
+        self.repaint();
+    }
+
+    fn repaint(&self) {
+        if self.edit != 0 {
+            unsafe {
+                ffi::InvalidateRect(self.edit, std::ptr::null(), 1);
             }
         }
     }
@@ -225,19 +308,11 @@ impl HandlerState {
 
     fn stop_preview(&mut self) {
         self.cancel.store(true, Ordering::Relaxed);
+        // Terminating the job kills the worker; the PID is never used to kill
+        // (see L3), so there is nothing here that can target a recycled PID.
         if let Ok(mut job) = self.job.lock() {
             if let Some(job) = job.take() {
                 job.terminate();
-            }
-        }
-        let pid = self.worker_pid.load(Ordering::Relaxed);
-        if pid != 0 {
-            unsafe {
-                let process = ffi::OpenProcess(ffi::PROCESS_TERMINATE, 0, pid);
-                if process != 0 {
-                    ffi::TerminateProcess(process, 1);
-                    ffi::CloseHandle(process);
-                }
             }
         }
         if let Some(thread) = self.thread.take() {
@@ -276,19 +351,33 @@ impl Drop for HandlerState {
     }
 }
 
+/// A raw interface pointer moved to a background thread.
+///
+/// Safe by the same argument as `unsafe impl Send for HandlerState`: the pointer
+/// names a COM object that was explicitly marshalled for the destination thread,
+/// and the thread is the sole owner of the reference.
+struct SendPtr(*mut c_void);
+
+unsafe impl Send for SendPtr {}
+
+/// Background-thread half of the marshalled preview path.
 fn run_preview(
-    bytes: Vec<u8>,
+    marshalled: SendPtr,
+    size: u64,
     cancel: &AtomicBool,
-    pid_slot: &AtomicU32,
     job_slot: &Mutex<Option<JobGuard>>,
 ) -> Result<String, String> {
+    // Unmarshalling also initializes COM for this thread; the returned value
+    // releases the stream and tears the apartment down when it drops (after the
+    // worker client, so the worker is gone first).
+    let stream = unsafe { stream::unmarshal(marshalled.0) }?;
+    unsafe { stream::seek_to_start(stream.as_ptr()) }?;
     let worker = worker_path()?;
     if cancel.load(Ordering::Relaxed) {
         return Err("preview was cancelled".to_string());
     }
     let mut client = WorkerClient::spawn(&worker, "explorer-preview")
         .map_err(|e| format!("cannot start the isolated worker: {e}"))?;
-    pid_slot.store(client.pid(), Ordering::Relaxed);
     let job = JobGuard::create_for_pid(client.pid())
         .map_err(|e| format!("cannot apply worker limits: {e}"))?;
     if let Ok(mut slot) = job_slot.lock() {
@@ -298,9 +387,20 @@ fn run_preview(
         client.kill();
         return Err("preview was cancelled".to_string());
     }
+    let mut reader = unsafe { StreamReader::new(stream.as_ptr()) };
+    pump_and_render(client, &mut reader, size, cancel)
+}
 
-    let size = bytes.len() as u64;
-    let mut reader = std::io::Cursor::new(bytes);
+/// Stream `reader` into the worker in bounded chunks and render it. The
+/// transfer stops between chunks as soon as `cancel` is set, so replacing the
+/// selection interrupts a slow read without changing the protocol.
+fn pump_and_render(
+    mut client: WorkerClient,
+    reader: &mut dyn Read,
+    size: u64,
+    cancel: &AtomicBool,
+) -> Result<String, String> {
+    let mut reader = CancelReader::new(reader, cancel);
     client
         .open_stream(&mut reader, size)
         .map_err(|e| format!("cannot transfer the stream: {e}"))?;
@@ -323,11 +423,34 @@ fn run_preview(
     Ok(text)
 }
 
+/// Resolve the worker path override from a `PARQUET_PREVIEW_WORKER` value.
+///
+/// Debug builds honour a non-empty value (a locally built worker is convenient
+/// during development); release builds ignore it. The caller passes the flag so
+/// both profiles are testable from one test binary.
+fn resolve_worker_override(value: Option<&str>, allow_override: bool) -> Option<PathBuf> {
+    if !allow_override {
+        return None;
+    }
+    let trimmed = value?.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(trimmed))
+    }
+}
+
 fn worker_path() -> Result<PathBuf, String> {
-    if let Ok(path) = std::env::var("PARQUET_PREVIEW_WORKER") {
-        if !path.trim().is_empty() {
-            return Ok(PathBuf::from(path));
-        }
+    // The override is read only in debug builds, so a released DLL has no
+    // user-settable child-process redirect. The loaded-DLL-relative worker is
+    // always the release answer.
+    #[cfg(debug_assertions)]
+    let override_value = std::env::var("PARQUET_PREVIEW_WORKER").ok();
+    #[cfg(not(debug_assertions))]
+    let override_value: Option<String> = None;
+
+    if let Some(path) = resolve_worker_override(override_value.as_deref(), cfg!(debug_assertions)) {
+        return Ok(path);
     }
     let dll = win32_registry::current_module_path()?;
     let directory = PathBuf::from(dll)
@@ -358,8 +481,26 @@ fn show_about(parent: ffi::HWND) {
     }
 }
 
+/// Convert LF-only text to CRLF for a Win32 multiline `EDIT` control, which
+/// only breaks lines on CRLF (its lone-LF handling needs `ES_EX_ALLOWEOL_LF`,
+/// Windows 10 1809+). The text layer (core `report`, `error_text`) emits bare
+/// `\n`, so without this the whole preview renders as one wrapped paragraph.
+/// Idempotent: an existing `\r\n` is left alone and never becomes `\r\r\n`.
+fn to_crlf(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut previous_was_cr = false;
+    for ch in text.chars() {
+        if ch == '\n' && !previous_was_cr {
+            out.push('\r');
+        }
+        out.push(ch);
+        previous_was_cr = ch == '\r';
+    }
+    out
+}
+
 fn set_window_text(window: ffi::HWND, text: &str) {
-    let text = ffi::wide(text);
+    let text = ffi::wide(&to_crlf(text));
     unsafe {
         ffi::SetWindowTextW(window, text.as_ptr());
     }
@@ -374,6 +515,7 @@ fn create_window(
     parent: ffi::HWND,
     rect: &ffi::RECT,
     text: Arc<Mutex<Option<String>>>,
+    colors: Arc<Mutex<Colors>>,
 ) -> Result<(ffi::HWND, ffi::HWND), String> {
     static CLASS: OnceLock<Result<(), String>> = OnceLock::new();
     CLASS.get_or_init(register_class).clone()?;
@@ -434,7 +576,7 @@ fn create_window(
         return Err("could not create the preview text control".to_string());
     }
     // Subclass the edit so F1 opens the About screen.
-    let context = Box::into_raw(Box::new(WindowContext { edit, text }));
+    let context = Box::into_raw(Box::new(WindowContext { edit, text, colors }));
     unsafe {
         let old = ffi::SetWindowLongPtrW(edit, ffi::GWLP_WNDPROC, edit_proc as *const () as isize);
         ffi::SetWindowLongPtrW(edit, ffi::GWLP_USERDATA, old);
@@ -464,6 +606,14 @@ fn register_class() -> Result<(), String> {
         return Err("RegisterClassW failed".to_string());
     }
     Ok(())
+}
+
+fn apply_font(edit: ffi::HWND, font: ffi::HFONT) {
+    if edit != 0 && font != 0 {
+        unsafe {
+            ffi::SendMessageW(edit, ffi::WM_SETFONT, font as ffi::WPARAM, 1);
+        }
+    }
 }
 
 fn resize_edit(parent: ffi::HWND, edit: ffi::HWND) {
@@ -520,6 +670,25 @@ unsafe extern "system" fn window_proc(
             ffi::DefWindowProcW(hwnd, message, wparam, lparam)
         }
         ffi::WM_ERASEBKGND => 1,
+        ffi::WM_CTLCOLORSTATIC => {
+            // The read-only preview edit is a static for colour purposes; let
+            // Explorer's colours show through a hollow (NULL) brush.
+            if context.is_null() {
+                ffi::DefWindowProcW(hwnd, message, wparam, lparam)
+            } else {
+                let colors = (*context)
+                    .colors
+                    .lock()
+                    .map(|colors| *colors)
+                    .unwrap_or_default();
+                let dc = wparam as ffi::HDC;
+                unsafe {
+                    ffi::SetTextColor(dc, colors.text_color);
+                    ffi::SetBkColor(dc, colors.background);
+                    ffi::GetStockObject(ffi::NULL_BRUSH) as ffi::LRESULT
+                }
+            }
+        }
         ffi::WM_KEYDOWN if wparam == ffi::VK_F1 => {
             show_about(hwnd);
             0
@@ -543,5 +712,59 @@ unsafe extern "system" fn edit_proc(
     match previous {
         Some(_) => ffi::CallWindowProcW(previous, hwnd, message, wparam, lparam),
         None => ffi::DefWindowProcW(hwnd, message, wparam, lparam),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lf_text_is_converted_to_crlf() {
+        // Every bare LF becomes CRLF...
+        assert_eq!(to_crlf("a\nb\n\nend"), "a\r\nb\r\n\r\nend");
+        // ...an existing CRLF is left untouched (no \r\r\n)...
+        assert_eq!(to_crlf("x\r\ny"), "x\r\ny");
+        // ...and text without newlines is unchanged.
+        assert_eq!(to_crlf("solo"), "solo");
+        // A lone CR is not a line break and must not gain an LF sibling.
+        assert_eq!(to_crlf("a\rb"), "a\rb");
+    }
+
+    /// L3: the redundant PID kill path was removed, so stopping a preview after
+    /// the worker finished must signal cancellation and join the thread without
+    /// ever touching a PID. The job object's kill-on-close owns termination.
+    #[test]
+    fn stop_preview_is_safe_without_a_worker_pid() {
+        let mut state = HandlerState::default();
+        let finished = Arc::new(AtomicBool::new(false));
+        let flag = finished.clone();
+        state.thread = Some(std::thread::spawn(move || {
+            flag.store(true, Ordering::Relaxed);
+        }));
+        state.stop_preview();
+        assert!(state.cancel.load(Ordering::Relaxed), "must signal cancel");
+        assert!(state.thread.is_none(), "stop_preview must drop the thread");
+        assert!(finished.load(Ordering::Relaxed), "the thread must have run");
+        // Idempotent with no job and no thread left.
+        state.stop_preview();
+        state.unload();
+    }
+
+    /// L8: the `PARQUET_PREVIEW_WORKER` override is honoured only in debug
+    /// builds. The resolver seam takes the flag explicitly, so both profiles
+    /// are asserted from one test binary: with the override not allowed (the
+    /// release case) even a set variable resolves to the DLL-relative worker.
+    #[test]
+    fn worker_override_is_debug_only() {
+        let local = r"C:\tools\parquet-preview-worker.exe";
+        assert_eq!(
+            resolve_worker_override(Some(local), true),
+            Some(PathBuf::from(local))
+        );
+        assert_eq!(resolve_worker_override(Some(local), false), None);
+        // Blank and absent values never resolve, even in debug.
+        assert_eq!(resolve_worker_override(Some("   "), true), None);
+        assert_eq!(resolve_worker_override(None, true), None);
     }
 }

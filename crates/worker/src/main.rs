@@ -31,6 +31,9 @@ fn main() -> ExitCode {
         settings,
         ..Default::default()
     };
+    // Belt-and-braces: remove spool files leaked by a crash or an older build.
+    // Delete-on-close handles the routine kill path. Best effort, never fatal.
+    let _ = parquet_preview_worker::spool::sweep_stale_spools(std::time::Duration::from_secs(3600));
     let stdin = io::stdin();
     let stdout = io::stdout();
     match serve(stdin.lock(), stdout.lock(), config) {

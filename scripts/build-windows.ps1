@@ -10,7 +10,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Cargo build failed' }
 New-Item -ItemType Directory -Force $env:DIST_DIR | Out-Null
 $names = @('parquet_preview_windows.dll', 'parquet-preview-worker.exe', 'parquet-preview-cli.exe')
 foreach ($name in $names) { Copy-Item (Join-Path $env:CARGO_TARGET_DIR "release/$name") $env:DIST_DIR -Force }
-$documents = @('LICENSE', 'NOTICE', 'THIRD_PARTY.md')
+$documents = @('LICENSE', 'NOTICE', 'THIRD_PARTY.md', 'THIRD_PARTY_LICENSES.txt')
 foreach ($name in $documents) { Copy-Item $name $env:DIST_DIR -Force }
 $names += $documents
 $lines = foreach ($name in $names) { "$( (Get-FileHash (Join-Path $env:DIST_DIR $name) -Algorithm SHA256).Hash.ToLowerInvariant() )  $name" }
