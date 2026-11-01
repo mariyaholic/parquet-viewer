@@ -1,0 +1,7 @@
+# Normalize the repo to LF end-to-end (SK-3 / opus-review housekeeping):
+# deterministic checkout, diffs and byte-comparing golden/fixture tests on
+# Windows clones as well as Linux CI.
+* text=auto eol=lf
+*.ico binary
+*.png binary
+*.parquet binary
