@@ -358,8 +358,26 @@ fn show_about(parent: ffi::HWND) {
     }
 }
 
+/// Convert LF-only text to CRLF for a Win32 multiline `EDIT` control, which
+/// only breaks lines on CRLF (its lone-LF handling needs `ES_EX_ALLOWEOL_LF`,
+/// Windows 10 1809+). The text layer (core `report`, `error_text`) emits bare
+/// `\n`, so without this the whole preview renders as one wrapped paragraph.
+/// Idempotent: an existing `\r\n` is left alone and never becomes `\r\r\n`.
+fn to_crlf(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut previous_was_cr = false;
+    for ch in text.chars() {
+        if ch == '\n' && !previous_was_cr {
+            out.push('\r');
+        }
+        out.push(ch);
+        previous_was_cr = ch == '\r';
+    }
+    out
+}
+
 fn set_window_text(window: ffi::HWND, text: &str) {
-    let text = ffi::wide(text);
+    let text = ffi::wide(&to_crlf(text));
     unsafe {
         ffi::SetWindowTextW(window, text.as_ptr());
     }
@@ -543,5 +561,22 @@ unsafe extern "system" fn edit_proc(
     match previous {
         Some(_) => ffi::CallWindowProcW(previous, hwnd, message, wparam, lparam),
         None => ffi::DefWindowProcW(hwnd, message, wparam, lparam),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::to_crlf;
+
+    #[test]
+    fn lf_text_is_converted_to_crlf() {
+        // Every bare LF becomes CRLF...
+        assert_eq!(to_crlf("a\nb\n\nend"), "a\r\nb\r\n\r\nend");
+        // ...an existing CRLF is left untouched (no \r\r\n)...
+        assert_eq!(to_crlf("x\r\ny"), "x\r\ny");
+        // ...and text without newlines is unchanged.
+        assert_eq!(to_crlf("solo"), "solo");
+        // A lone CR is not a line break and must not gain an LF sibling.
+        assert_eq!(to_crlf("a\rb"), "a\rb");
     }
 }
