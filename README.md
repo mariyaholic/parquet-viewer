@@ -65,10 +65,12 @@ cargo check -p parquet-preview-windows --features win-check
 ```
 
 For native Windows releases run `scripts/build-windows.ps1`; on Linux run
-`scripts/build-windows.sh` with the Windows GNU target and MinGW installed.
-Both produce `dist/` binaries and SHA256SUMS; the scripts use the last commit
-timestamp and remap source paths, but reproducibility also depends on identical
-toolchains and dependency inputs. See [docs/TESTING.md](docs/TESTING.md)
+`scripts/build-windows.sh` with the Windows GNU target and MinGW installed
+(the Linux script also needs `zip`). Both produce `dist/` with the binaries,
+licence documents, the registration scripts and `SHA256SUMS`, plus a single
+release archive `dist/parquet-preview-<version>-x64.zip`; the scripts use the
+last commit timestamp and remap source paths, but reproducibility also depends
+on identical toolchains and dependency inputs. See [docs/TESTING.md](docs/TESTING.md)
 for everything that still requires real Windows.
 
 ## Headless use
@@ -110,14 +112,18 @@ authenticity or integrity, and are not financial advice.
 
 ## Windows registration
 
-Build the workspace on Windows, then use the opt-in per-user script:
+Releases are published as `parquet-preview-<version>-x64.zip`, containing the
+binaries, the licence documents and the registration scripts. Extract the zip and
+run the per-user script from the extracted folder:
 
 ```text
-powershell -ExecutionPolicy Bypass -File installer\Register-ParquetPreview.ps1
-powershell -ExecutionPolicy Bypass -File installer\Register-ParquetPreview.ps1 -Unregister
+powershell -ExecutionPolicy Bypass -File install.ps1
+powershell -ExecutionPolicy Bypass -File uninstall.ps1
 ```
 
-The script warns before changing `.parquet` associations, backs up the previous
+`install.ps1` and `uninstall.ps1` are the conventional entry points; both are
+thin wrappers over `Register-ParquetPreview.ps1`, which holds the logic. The
+scripts warn before changing `.parquet` associations, back up the previous
 handler, and the uninstaller only restores it if the association is still ours.
 Registration is under `HKCU\Software\Classes`; no elevation is required. Restart
 Explorer after registering. Releases are not code-signed yet, so SmartScreen may
