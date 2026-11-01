@@ -13,8 +13,9 @@ These items are deliberately out of the v1 scope described in
   association conflict handling beyond the current per-user script.
 - ARM64 Windows build and host-bitness checks beyond the current 64-bit-only
   compile gate.
-- Page-index-based virtual scrolling and a file-name aware initialization path
-  for large files.
+- Pane paging and page-index-based virtual scrolling for large files, plus a
+  file-name aware initialization path. v1 shows a fixed first-rows sample
+  (`sample_offset: 0`, `sample_limit: 100`) with no paging input.
 - Exact bounds for nested date/timestamp leaves; v1 covers top-level columns
   only and states the limitation.
 - Licensed, dated instrument-specific price databases and configurable

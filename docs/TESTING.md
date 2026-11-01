@@ -75,8 +75,9 @@ powershell -ExecutionPolicy Bypass -File installer\Register-ParquetPreview.ps1 -
 ```
 
 Then select a `.parquet` fixture in Explorer's preview pane, resize the pane,
-page through a large file, switch selection while a preview is loading, and
-press F1. Unregister and confirm the prior association is restored. Test corrupt,
+switch selection while a preview is loading, and press F1. Pane paging through
+a large file is not a v1 feature (see ROADMAP.md). Unregister and confirm the
+prior association is restored. Test corrupt,
 encrypted, empty, nested, multi-row-group and all-codec fixtures. Check
 Task Manager for orphaned `parquet-preview-worker.exe` processes after switching
 files repeatedly.
