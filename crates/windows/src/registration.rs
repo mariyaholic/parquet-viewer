@@ -210,7 +210,7 @@ pub fn register(
         .set_string(&inproc_key(), "", dll_path)
         .map_err(RegistrationError::Registry)?;
     registry
-        .set_string(&inproc_key(), "ThreadingModel", "Both")
+        .set_string(&inproc_key(), "ThreadingModel", "Apartment")
         .map_err(RegistrationError::Registry)?;
 
     Ok(RegistrationReport {
@@ -305,7 +305,7 @@ mod tests {
         assert_eq!(registry.value(&inproc_key(), "").as_deref(), Some(DLL));
         assert_eq!(
             registry.value(&inproc_key(), "ThreadingModel").as_deref(),
-            Some("Both")
+            Some("Apartment")
         );
         assert_eq!(registry.value(BACKUP, "").as_deref(), Some(""));
         assert_eq!(
