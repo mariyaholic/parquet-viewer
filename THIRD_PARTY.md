@@ -16,6 +16,12 @@ No GPL/AGPL code is linked into the shipped Windows binaries. The reader is the
 Apache-2.0 `parquet` crate from Apache Arrow; no code was taken from
 mukunku/ParquetViewer or other GPL viewers.
 
+The full licence texts of every package below are distributed in
+[`THIRD_PARTY_LICENSES.txt`](THIRD_PARTY_LICENSES.txt), generated from the
+`x86_64-pc-windows-gnu` dependency graph by
+`scripts/generate-third-party-licenses.ps1` (offline, no tool install). It ships
+next to `LICENSE`/`NOTICE` in every `dist/` bundle.
+
 Licence expressions below are the upstream `license` fields. Where a package
 offers a choice, this project relies on the MIT, Apache-2.0, BSD or Zlib option.
 `Unlicense OR MIT` packages are used under MIT. `BSD-2-Clause` is recorded
