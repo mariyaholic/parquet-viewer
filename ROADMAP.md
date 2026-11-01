@@ -5,8 +5,8 @@ These items are deliberately out of the v1 scope described in
 
 - Real Windows verification of COM activation, Explorer stream behaviour,
   registration conflicts, job assignment and cancellation; see docs/TESTING.md.
-- Code signing (SignPath Foundation or another approved route) and release
-  SHA256SUMS. Releases are "not code-signed yet".
+- Code signing (SignPath Foundation or another approved route). Releases are
+  "not code-signed yet".
 - MSIX/Store packaging and its preview-handler registration support, including a
   clear unsupported path if Store MSIX cannot register the handler.
 - Installer/updater with version-matched handler and worker, clean uninstall and
