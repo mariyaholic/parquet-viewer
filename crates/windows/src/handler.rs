@@ -423,11 +423,34 @@ fn pump_and_render(
     Ok(text)
 }
 
+/// Resolve the worker path override from a `PARQUET_PREVIEW_WORKER` value.
+///
+/// Debug builds honour a non-empty value (a locally built worker is convenient
+/// during development); release builds ignore it. The caller passes the flag so
+/// both profiles are testable from one test binary.
+fn resolve_worker_override(value: Option<&str>, allow_override: bool) -> Option<PathBuf> {
+    if !allow_override {
+        return None;
+    }
+    let trimmed = value?.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(trimmed))
+    }
+}
+
 fn worker_path() -> Result<PathBuf, String> {
-    if let Ok(path) = std::env::var("PARQUET_PREVIEW_WORKER") {
-        if !path.trim().is_empty() {
-            return Ok(PathBuf::from(path));
-        }
+    // The override is read only in debug builds, so a released DLL has no
+    // user-settable child-process redirect. The loaded-DLL-relative worker is
+    // always the release answer.
+    #[cfg(debug_assertions)]
+    let override_value = std::env::var("PARQUET_PREVIEW_WORKER").ok();
+    #[cfg(not(debug_assertions))]
+    let override_value: Option<String> = None;
+
+    if let Some(path) = resolve_worker_override(override_value.as_deref(), cfg!(debug_assertions)) {
+        return Ok(path);
     }
     let dll = win32_registry::current_module_path()?;
     let directory = PathBuf::from(dll)
@@ -726,5 +749,22 @@ mod tests {
         // Idempotent with no job and no thread left.
         state.stop_preview();
         state.unload();
+    }
+
+    /// L8: the `PARQUET_PREVIEW_WORKER` override is honoured only in debug
+    /// builds. The resolver seam takes the flag explicitly, so both profiles
+    /// are asserted from one test binary: with the override not allowed (the
+    /// release case) even a set variable resolves to the DLL-relative worker.
+    #[test]
+    fn worker_override_is_debug_only() {
+        let local = r"C:\tools\parquet-preview-worker.exe";
+        assert_eq!(
+            resolve_worker_override(Some(local), true),
+            Some(PathBuf::from(local))
+        );
+        assert_eq!(resolve_worker_override(Some(local), false), None);
+        // Blank and absent values never resolve, even in debug.
+        assert_eq!(resolve_worker_override(Some("   "), true), None);
+        assert_eq!(resolve_worker_override(None, true), None);
     }
 }
