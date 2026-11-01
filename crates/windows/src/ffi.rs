@@ -243,7 +243,6 @@ extern "system" {
     pub fn GetModuleHandleExW(flags: u32, name: *const u16, module: *mut HMODULE) -> BOOL;
     pub fn GetModuleFileNameW(module: HMODULE, buffer: *mut u16, size: u32) -> u32;
     pub fn OpenProcess(access: u32, inherit: BOOL, pid: u32) -> HANDLE;
-    pub fn TerminateProcess(process: HANDLE, code: u32) -> BOOL;
     pub fn CloseHandle(handle: HANDLE) -> BOOL;
     pub fn CreateJobObjectW(attributes: *mut c_void, name: *const u16) -> HANDLE;
     pub fn SetInformationJobObject(
