@@ -13,7 +13,9 @@ The handler registers per-user as an Apartment-threaded object, writes the
 server definition before the `.parquet` association with best-effort rollback,
 refreshes the association backup when a foreign handler took over, and resolves
 the worker next to the loaded DLL in release builds (the debug-only
-`PARQUET_PREVIEW_WORKER` override is compiled out of release binaries).
+`PARQUET_PREVIEW_WORKER` override is compiled out of release binaries). A
+follow-up batch pins the CI actions (XR-1), fixes the e2e text read, and
+delivers releases as a single zip with conventional install entry points.
 
 ## Commits (one per finding)
 
@@ -43,9 +45,14 @@ cargo clippy --locked --all-targets                # exit 0; only pre-existing l
 cargo build --locked --workspace                   # ok
 cargo test --locked --workspace                    # 144 passed, 0 failed
 PARQUET_PREVIEW_E2E=1 cargo test --locked -p parquet-preview-windows --lib \
-  -- --test-threads=1 full_preview_round_trip      # 1 passed
+  -- --test-threads=1 full_preview_round_trip      # 1 passed (asserts the credit line)
 cargo build --locked --release -p parquet-preview-windows   # ok
+pwsh scripts/generate-third-party-licenses.ps1 -Check        # up to date (both powershell 5.1 and pwsh 7)
+pwsh scripts/build-windows.ps1 -Version v0.1.0-test          # wrote dist/ and the release zip
 ```
+
+`cargo deny check licenses bans` runs in CI (the tool is not installed on this
+box); it is unchanged by this branch.
 
 [measured] The release-profile DLL contains no `PARQUET_PREVIEW_WORKER` string
 (`findstr` exits 1) while the debug DLL does (`findstr` exits 0); this proves the
@@ -81,17 +88,38 @@ including tests.
 - **L2:** the failure-injecting test double keys on the target key and name, not
   on the Nth `set_string`, because the fix changes the call order and count.
 
+## Follow-ups after the fix batch (branch `chore/opus-review-07b-followups`)
+
+| Change | Commit | Summary |
+|---|---|---|
+| XR-1 | `ed5ccbc` | pin all four CI actions by commit SHA; keep `AGENTS.md`/`opencode.json` local-only (the same commit that updates PR #2, rebased onto `main`) |
+| e2e | `01eb077` | size the preview-text read from the control; assert the credit line |
+| L8 | `e821de1` | deliver one `parquet-preview-<version>-x64.zip`; conventional `install.ps1`/`uninstall.ps1` entry points |
+| licences | `1e2ba16` | sort licence files ordinally so the bundle `-Check` is engine-independent |
+
+[measured] `scripts/build-windows.ps1 -Version v0.1.0-test` writes `dist/` with
+the three binaries, four licence documents, the three registration scripts,
+`INSTALL.md`, `SHA256SUMS`, and `parquet-preview-v0.1.0-test-x64.zip` (13 entries
+inside the zip). The release-profile DLL contains no `PARQUET_PREVIEW_WORKER`
+string (`findstr` exit 1) while the debug DLL does (`findstr` exit 0).
+
+[measured] With the fixed 8,192-element read restored, the new e2e credit
+assertion panics (red at `crates/windows/src/com.rs`); with the control-sized
+buffer the opt-in harness passes (1 passed).
+
+[measured] `generate-third-party-licenses.ps1 -Check` was red under PowerShell 7
+on `main` (the committed bundle held the Windows PowerShell 5.1 collation order,
+because `Sort-Object` orders `LICENSE.txt` before `LICENSE-MIT` on 5.1 and after
+it on 7). After the ordinal sort it passes under both engines, and the bundle
+change is a pure reorder (identical line multiset).
+
 ## Open issues (for the Manager)
 
-- **XR-1 (`chore/xr-1-ci-pins`, PR #2)** should merge and re-pin the GitHub
-  Actions before the first tagged CI/release run. This branch edits
-  `.github/workflows/ci.yml` as well (L8), so rebase after XR-1 lands.
-- **L8 release format** (attach `dist/` from `scripts/build-windows.ps1` to a
-  tag-triggered GitHub Release) is the spec's open question; shipped as
-  described, left for confirmation.
+- **XR-1 (PR #2)** is rebased on `main` (`40f6011`) and pins all four actions
+  (checkout, rust-toolchain, cargo-deny-action, action-gh-release). This branch
+  is built on it, so when PR #2 merges this PR's diff drops the XR-1 commit.
+- **L8 release format (decided):** delivery is one zip; the installer follows the
+  portable-zip plus per-user-script convention (a versioned MSI/MSIX stays on
+  ROADMAP). Flagged in the commit and the PR body.
 - No Manager sign-off was required for any 07b finding beyond the C1 ruling and
-  the recorded 07b M1 approval; every ⚠ sign-off is in
-  `fix-plan/DECISIONS.md`.
-- The preview report truncates the "Made by Maria" credit line before it prints
-  (the e2e asserts on `Rows: 60` and CRLF instead). Observed, not a finding;
-  worth a follow-up.
+  the recorded 07b M1 approval; every ⚠ sign-off is in `fix-plan/DECISIONS.md`.
