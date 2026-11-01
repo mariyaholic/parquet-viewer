@@ -8,7 +8,7 @@
 
 use std::ffi::c_void;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
 
@@ -35,7 +35,6 @@ pub struct HandlerState {
     edit: ffi::HWND,
     thread: Option<JoinHandle<()>>,
     cancel: Arc<AtomicBool>,
-    worker_pid: Arc<AtomicU32>,
     job: Arc<Mutex<Option<JobGuard>>>,
     text: Arc<Mutex<Option<String>>>,
 }
@@ -52,7 +51,6 @@ impl Default for HandlerState {
             edit: 0,
             thread: None,
             cancel: Arc::new(AtomicBool::new(false)),
-            worker_pid: Arc::new(AtomicU32::new(0)),
             job: Arc::new(Mutex::new(None)),
             text: Arc::new(Mutex::new(None)),
         }
@@ -145,7 +143,6 @@ impl HandlerState {
             }
         };
         let cancelled = Arc::new(AtomicBool::new(false));
-        let worker_pid = Arc::new(AtomicU32::new(0));
         let job = Arc::new(Mutex::new(None));
         let parent = self.hwnd;
         let text_slot = self.text.clone();
@@ -153,13 +150,11 @@ impl HandlerState {
             *current = None;
         }
         let cancel = cancelled.clone();
-        let pid = worker_pid.clone();
         let job_slot = job.clone();
         self.cancel = cancelled;
-        self.worker_pid = worker_pid;
         self.job = job;
         self.thread = Some(std::thread::spawn(move || {
-            let text = match run_preview(bytes, &cancel, &pid, &job_slot) {
+            let text = match run_preview(bytes, &cancel, &job_slot) {
                 Ok(text) => text,
                 Err(error) => error_text(&error),
             };
@@ -171,7 +166,6 @@ impl HandlerState {
                     ffi::PostMessageW(parent, WM_APP_PREVIEW_READY, 0, 0);
                 }
             }
-            pid.store(0, Ordering::Relaxed);
             if let Ok(mut job) = job_slot.lock() {
                 job.take();
             }
@@ -180,20 +174,11 @@ impl HandlerState {
 
     pub fn unload(&mut self) {
         self.cancel.store(true, Ordering::Relaxed);
+        // The job object (kill-on-close) owns termination of the worker; there
+        // is no separate PID kill path to race with PID recycling.
         if let Ok(mut job) = self.job.lock() {
             if let Some(job) = job.take() {
                 job.terminate();
-            }
-        }
-        let pid = self.worker_pid.load(Ordering::Relaxed);
-        if pid != 0 {
-            unsafe {
-                let process =
-                    ffi::OpenProcess(ffi::PROCESS_TERMINATE | ffi::PROCESS_SET_QUOTA, 0, pid);
-                if process != 0 {
-                    ffi::TerminateProcess(process, 1);
-                    ffi::CloseHandle(process);
-                }
             }
         }
         if let Some(thread) = self.thread.take() {
@@ -225,19 +210,11 @@ impl HandlerState {
 
     fn stop_preview(&mut self) {
         self.cancel.store(true, Ordering::Relaxed);
+        // Terminating the job kills the worker; the PID is never used to kill
+        // (see L3), so there is nothing here that can target a recycled PID.
         if let Ok(mut job) = self.job.lock() {
             if let Some(job) = job.take() {
                 job.terminate();
-            }
-        }
-        let pid = self.worker_pid.load(Ordering::Relaxed);
-        if pid != 0 {
-            unsafe {
-                let process = ffi::OpenProcess(ffi::PROCESS_TERMINATE, 0, pid);
-                if process != 0 {
-                    ffi::TerminateProcess(process, 1);
-                    ffi::CloseHandle(process);
-                }
             }
         }
         if let Some(thread) = self.thread.take() {
@@ -279,7 +256,6 @@ impl Drop for HandlerState {
 fn run_preview(
     bytes: Vec<u8>,
     cancel: &AtomicBool,
-    pid_slot: &AtomicU32,
     job_slot: &Mutex<Option<JobGuard>>,
 ) -> Result<String, String> {
     let worker = worker_path()?;
@@ -288,7 +264,6 @@ fn run_preview(
     }
     let mut client = WorkerClient::spawn(&worker, "explorer-preview")
         .map_err(|e| format!("cannot start the isolated worker: {e}"))?;
-    pid_slot.store(client.pid(), Ordering::Relaxed);
     let job = JobGuard::create_for_pid(client.pid())
         .map_err(|e| format!("cannot apply worker limits: {e}"))?;
     if let Ok(mut slot) = job_slot.lock() {
@@ -566,7 +541,7 @@ unsafe extern "system" fn edit_proc(
 
 #[cfg(test)]
 mod tests {
-    use super::to_crlf;
+    use super::*;
 
     #[test]
     fn lf_text_is_converted_to_crlf() {
@@ -578,5 +553,25 @@ mod tests {
         assert_eq!(to_crlf("solo"), "solo");
         // A lone CR is not a line break and must not gain an LF sibling.
         assert_eq!(to_crlf("a\rb"), "a\rb");
+    }
+
+    /// L3: the redundant PID kill path was removed, so stopping a preview after
+    /// the worker finished must signal cancellation and join the thread without
+    /// ever touching a PID. The job object's kill-on-close owns termination.
+    #[test]
+    fn stop_preview_is_safe_without_a_worker_pid() {
+        let mut state = HandlerState::default();
+        let finished = Arc::new(AtomicBool::new(false));
+        let flag = finished.clone();
+        state.thread = Some(std::thread::spawn(move || {
+            flag.store(true, Ordering::Relaxed);
+        }));
+        state.stop_preview();
+        assert!(state.cancel.load(Ordering::Relaxed), "must signal cancel");
+        assert!(state.thread.is_none(), "stop_preview must drop the thread");
+        assert!(finished.load(Ordering::Relaxed), "the thread must have run");
+        // Idempotent with no job and no thread left.
+        state.stop_preview();
+        state.unload();
     }
 }
