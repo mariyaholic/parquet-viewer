@@ -27,6 +27,24 @@ const WM_APP_PREVIEW_READY: u32 = 0x8000 + 1;
 struct WindowContext {
     edit: ffi::HWND,
     text: Arc<Mutex<Option<String>>>,
+    colors: Arc<Mutex<Colors>>,
+}
+
+/// `IPreviewHandlerVisuals` colours, applied through `WM_CTLCOLORSTATIC`.
+#[derive(Clone, Copy)]
+struct Colors {
+    background: ffi::COLORREF,
+    text_color: ffi::COLORREF,
+}
+
+impl Default for Colors {
+    fn default() -> Self {
+        // Light system colours; Explorer overrides them for dark mode.
+        Self {
+            background: 0x00FF_FFFF,
+            text_color: 0x0000_0000,
+        }
+    }
 }
 
 pub struct HandlerState {
@@ -37,6 +55,8 @@ pub struct HandlerState {
     cancel: Arc<AtomicBool>,
     job: Arc<Mutex<Option<JobGuard>>>,
     text: Arc<Mutex<Option<String>>>,
+    font: ffi::HFONT,
+    colors: Arc<Mutex<Colors>>,
 }
 
 // The state is only touched from the COM apartment thread. The worker thread
@@ -53,6 +73,8 @@ impl Default for HandlerState {
             cancel: Arc::new(AtomicBool::new(false)),
             job: Arc::new(Mutex::new(None)),
             text: Arc::new(Mutex::new(None)),
+            font: unsafe { ffi::GetStockObject(ffi::DEFAULT_GUI_FONT) },
+            colors: Arc::new(Mutex::new(Colors::default())),
         }
     }
 }
@@ -80,9 +102,10 @@ impl HandlerState {
             self.destroy_window();
         }
         if self.hwnd == 0 {
-            let (hwnd, edit) = create_window(parent, rect, self.text.clone())?;
+            let (hwnd, edit) = create_window(parent, rect, self.text.clone(), self.colors.clone())?;
             self.hwnd = hwnd;
             self.edit = edit;
+            apply_font(self.edit, self.font);
         }
         self.set_rect(rect);
         Ok(())
@@ -192,6 +215,36 @@ impl HandlerState {
         if self.edit != 0 {
             unsafe {
                 ffi::SetFocus(self.edit);
+            }
+        }
+    }
+
+    /// Apply Explorer's UI font (`IPreviewHandlerVisuals::SetFont`).
+    pub fn set_font(&mut self, font: ffi::HFONT) {
+        self.font = font;
+        apply_font(self.edit, font);
+    }
+
+    /// Apply Explorer's background colour (`SetBackgroundColor`).
+    pub fn set_background_color(&mut self, color: ffi::COLORREF) {
+        if let Ok(mut colors) = self.colors.lock() {
+            colors.background = color;
+        }
+        self.repaint();
+    }
+
+    /// Apply Explorer's text colour (`SetTextColor`).
+    pub fn set_text_color(&mut self, color: ffi::COLORREF) {
+        if let Ok(mut colors) = self.colors.lock() {
+            colors.text_color = color;
+        }
+        self.repaint();
+    }
+
+    fn repaint(&self) {
+        if self.edit != 0 {
+            unsafe {
+                ffi::InvalidateRect(self.edit, std::ptr::null(), 1);
             }
         }
     }
@@ -367,6 +420,7 @@ fn create_window(
     parent: ffi::HWND,
     rect: &ffi::RECT,
     text: Arc<Mutex<Option<String>>>,
+    colors: Arc<Mutex<Colors>>,
 ) -> Result<(ffi::HWND, ffi::HWND), String> {
     static CLASS: OnceLock<Result<(), String>> = OnceLock::new();
     CLASS.get_or_init(register_class).clone()?;
@@ -427,7 +481,7 @@ fn create_window(
         return Err("could not create the preview text control".to_string());
     }
     // Subclass the edit so F1 opens the About screen.
-    let context = Box::into_raw(Box::new(WindowContext { edit, text }));
+    let context = Box::into_raw(Box::new(WindowContext { edit, text, colors }));
     unsafe {
         let old = ffi::SetWindowLongPtrW(edit, ffi::GWLP_WNDPROC, edit_proc as *const () as isize);
         ffi::SetWindowLongPtrW(edit, ffi::GWLP_USERDATA, old);
@@ -457,6 +511,14 @@ fn register_class() -> Result<(), String> {
         return Err("RegisterClassW failed".to_string());
     }
     Ok(())
+}
+
+fn apply_font(edit: ffi::HWND, font: ffi::HFONT) {
+    if edit != 0 && font != 0 {
+        unsafe {
+            ffi::SendMessageW(edit, ffi::WM_SETFONT, font as ffi::WPARAM, 1);
+        }
+    }
 }
 
 fn resize_edit(parent: ffi::HWND, edit: ffi::HWND) {
@@ -513,6 +575,25 @@ unsafe extern "system" fn window_proc(
             ffi::DefWindowProcW(hwnd, message, wparam, lparam)
         }
         ffi::WM_ERASEBKGND => 1,
+        ffi::WM_CTLCOLORSTATIC => {
+            // The read-only preview edit is a static for colour purposes; let
+            // Explorer's colours show through a hollow (NULL) brush.
+            if context.is_null() {
+                ffi::DefWindowProcW(hwnd, message, wparam, lparam)
+            } else {
+                let colors = (*context)
+                    .colors
+                    .lock()
+                    .map(|colors| *colors)
+                    .unwrap_or_default();
+                let dc = wparam as ffi::HDC;
+                unsafe {
+                    ffi::SetTextColor(dc, colors.text_color);
+                    ffi::SetBkColor(dc, colors.background);
+                    ffi::GetStockObject(ffi::NULL_BRUSH) as ffi::LRESULT
+                }
+            }
+        }
         ffi::WM_KEYDOWN if wparam == ffi::VK_F1 => {
             show_about(hwnd);
             0
