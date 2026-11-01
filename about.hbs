@@ -1,0 +1,16 @@
+{{!-- Template for `cargo about generate about.hbs` producing
+     THIRD_PARTY_LICENSES.txt. The canonical offline generator for this
+     repository is scripts/generate-third-party-licenses.ps1. --}}
+# Third-party licences
+#
+# Generated from the x86_64-pc-windows-gnu dependency graph with cargo-about.
+{{#each licenses}}
+================================================================================
+{{name}}
+================================================================================
+{{#each used_by}}
+Used by: {{crate.name}} {{crate.version}}
+{{/each}}
+--------------------------------------------------------------------------------
+{{{text}}}
+{{/each}}
