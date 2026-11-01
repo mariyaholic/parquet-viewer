@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Spawn and drive the isolated worker over its versioned protocol.
 //!
-//! Cancellation is by process termination: the host keeps the child handle and
-//! a watchdog kills it when a preview is replaced or exceeds its deadline.
+//! Cancellation is by process termination plus transfer interruption: the host
+//! keeps the child handle and kills it when a preview is replaced or the client
+//! is dropped, and a stream transfer stops between chunks once cancellation is
+//! requested. There is no wall-clock deadline: a single stuck decode runs until
+//! the next replacement.
 
 use std::io::{BufReader, Read};
 use std::path::Path;
