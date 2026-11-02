@@ -1,5 +1,50 @@
 # Status
 
+## Latest hosted verification — 2026-11-02
+
+[measured] Current tracked RS source: 12,846 lines across 39 files,
+including tests (raw physical lines, not a production-only LOC estimate).
+
+This section supersedes historical local/CI assumptions below. Changes are on
+`fix/remaining-plan-issues`; no push, CI trigger or release publication occurred.
+
+- **Marshalling-test deadlock fixed:** the source STA pumps COM messages until
+  the worker finishes instead of blocking in join(). Full payload assertions
+  remain and a 20 s deadline fails a real hang. No skip filter is used.
+- **M4 investigated, deliberately not implemented:** the worker creates its
+  spool in std::env::temp_dir with read/write/delete access and reports I/O
+  failure as Internal during open_stream. The Low-IL/temp-permission hypothesis
+  is plausible, not confirmed by Wine. The spec still requires a clean native
+  Explorer flag experiment and an explicit Manager choice of opt-out versus
+  Low-IL-preserving spool location. No integrity boundary was changed.
+
+Verified with Rust/Cargo 1.99.1, MinGW GCC 12, Wine 11, serial test execution:
+- `cargo fmt --all -- --check`: pass.
+- `cargo clippy --workspace --all-targets --locked --offline`: pass on Linux
+  and with `--target x86_64-pc-windows-gnu`; existing non-strict warnings remain.
+- Linux workspace build/test: **135 passed, 0 failed**.
+- Windows GNU workspace build: pass. Full unfiltered workspace tests with
+  `PARQUET_PREVIEW_E2E=1` and runner `wine`: **144 passed, 0 failed**, including
+  real COM e2e, cross-thread marshalling and the 200 MiB streaming client test.
+- An initial link failed with No space left on device. The next run reached
+  the large transfer but failed with BrokenPipe while only 154 MiB remained.
+  After removing generated Linux executables/caches, the entire unfiltered
+  Windows suite passed; both earlier failure logs are retained, not overwritten.
+- `cargo deny --offline check licenses bans`: pass (allowance warnings).
+- `sh scripts/build-windows.sh` with VERSION=0.1.0-local: real GNU release
+  build passed. The zip has **12 entries** (the historical 13-entry claim below
+  was stale); each entry matches dist, and all 11 manifest-listed files hash
+  correctly. The release DLL contains no PARQUET_PREVIEW_WORKER string.
+- Release CLI rendered trades.parquet under Wine.
+
+Evidence: portfolio `verification/parquet-windows-acceptance.log`,
+`FINAL-RESULTS.json`, release-build/smoke logs and `release-payloads.json`.
+The committed PowerShell licence-generator -Check, native MSVC/PowerShell
+package build, pinned Rust 1.85.1 CI run, Explorer Low-IL/DPI/SMB behavior and
+physical desktop stress remain native/hosted checks. `docs/TESTING.md` lists
+XR-2 outcomes and M4 prerequisites explicitly.
+
+
 [measured] The local, read-only Parquet preview handler (v1) is built: a 64-bit
 Windows COM preview-handler DLL with an isolated worker process, a versioned
 host/worker protocol, footer/schema/row-group reading, a first-rows sample, an
