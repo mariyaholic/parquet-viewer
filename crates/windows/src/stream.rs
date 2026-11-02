@@ -183,6 +183,19 @@ mod tests {
     use super::*;
     use std::io::Read;
 
+    #[link(name = "user32")]
+    extern "system" {
+        fn PeekMessageW(
+            msg: *mut ffi::MSG,
+            hwnd: ffi::HWND,
+            min: u32,
+            max: u32,
+            remove: u32,
+        ) -> i32;
+        fn TranslateMessage(msg: *const ffi::MSG) -> i32;
+        fn DispatchMessageW(msg: *const ffi::MSG) -> isize;
+    }
+
     #[link(name = "shlwapi")]
     extern "system" {
         fn SHCreateMemStream(init: *const u8, size: u32) -> *mut c_void;
@@ -222,6 +235,23 @@ mod tests {
             reader.read_to_end(&mut out).unwrap();
             out
         });
+        // A host STA must pump COM calls while its worker reads a proxy.
+        // Blocking this apartment in join() deadlocks apartment-bound streams.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !handle.is_finished() {
+            unsafe {
+                let mut message: ffi::MSG = std::mem::zeroed();
+                while PeekMessageW(&mut message, 0, 0, 0, 1) != 0 {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "STA stream transfer timed out"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
         let out = handle.join().unwrap();
         assert_eq!(out, payload);
 
