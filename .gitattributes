@@ -5,3 +5,5 @@
 *.ico binary
 *.png binary
 *.parquet binary
+
+*.ttf binary

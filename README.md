@@ -2,6 +2,17 @@ Made by Maria
 
 # Parquet viewer and preview
 
+## Standalone desktop preview
+
+A native Windows desktop companion is now implemented with **Paper, Ink, PC-98,
+Doloris, Sumimi and Marigold** themes. Extract its portable developer ZIP and run
+`parquet-desktop.exe`; no COM registration is needed. This is a bounded, read-only
+sample viewer, not yet a full-file spreadsheet.
+
+[Run/build instructions, limits and remaining native acceptance](docs/STANDALONE-USAGE.md).
+
+
+
 Preview a local Parquet file in Windows Explorer with schema, row-group
 information and transparent scan coverage.
 
