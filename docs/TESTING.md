@@ -111,3 +111,44 @@ Explorer stream input is marshalled to a background thread (`CoMarshalInterThrea
 Uninstall leaves shared association keys in place after removing the owned value, avoiding a non-atomic empty-key deletion. Verify real registry behaviour and conflict restoration on Windows, including concurrent changes. The ownership check and value removal themselves are separate registry operations, so concurrent reassignment remains a race; avoid simultaneous association changes during uninstall.
 
 Run `scripts/build-windows.ps1` on Windows and compare independent release builds. Cross-builds do not establish native reproducibility or execute COM. The release payload must retain LICENSE, NOTICE, THIRD_PARTY.md and THIRD_PARTY_LICENSES.txt, the per-user registration scripts, and the single `parquet-preview-<version>-x64.zip` archive.
+
+## Hosted acceptance follow-up — 2026-11-02 (Linux + Wine 11)
+
+Wine execution is not native Explorer acceptance. Commands and raw output are
+in the portfolio's `verification/` directory. The opt-in COM e2e harness is
+explicitly enabled, not counted from its default early return.
+
+### XR-2 item-by-item
+1. Rendering: **partial**. Golden rendering and explicitly enabled real COM
+   round-trip pass under Wine; native Explorer schema/sample layout is pending.
+2. Error text: **partial**. Invalid-file and CRLF regressions run; native
+   Explorer invalid-file presentation is pending.
+3. Streaming: **partial**. Real COM stream marshalling and the 200 MiB client
+   transfer test are included without skip filters. Native SMB/selection-change
+   responsiveness remains pending; see STATUS.md for final suite outcome.
+4. Temp leak: **partial**. Delete-on-close worker-kill and old-spool sweep
+   regressions run; native x20 Explorer changes and job-limit stress are pending.
+5. Takeover backup: **automated corroboration passed**. Foreign takeover,
+   force-register and restore regressions run. Native installer workflow is pending.
+6. Registration order: **automated corroboration passed** via a write-failure
+   injection proving association unchanged. Optional live interruption is pending.
+7. No stray kill: **partial**. Redundant PID-kill path was removed previously;
+   real worker-kill/drop tests run. Native 30-second arrow stress is pending.
+8. Apartment: **partial**. Cross-apartment stream test passes with the source
+   STA pumping COM messages. Native prevhost STA and re-registration remain pending.
+9. Site/visuals: **native blocked**. Interface tests and COM e2e corroborate
+   integration, not Explorer Tab traversal, dark mode or physical 150% DPI.
+10. E2e harness: **Wine passed with PARQUET_PREVIEW_E2E=1**. It drives the
+    real class factory, IStream, child window and isolated worker. Native run pending.
+11. M4 Low-IL access denial: **blocked, not fixed speculatively**. The worker
+    creates its spool using std::env::temp_dir and OpenOptions read/write/delete
+    access; an I/O failure is returned as Internal during open_stream. This
+    supports the temp-permissions hypothesis, not a proven native root cause.
+    Repeat the clean native Explorer DWORD experiment from the root M4 spec,
+    observe a rendered sample and prevhost integrity, then obtain a Manager
+    variant choice before changing isolation or spool location. Wine cannot
+    supply that decisive integrity-policy evidence. No DWORD/LocalLow change made.
+
+The two-apartment test no longer blocks its STA in join(): it pumps messages
+until the reader finishes, asserts the original complete payload, and has a
+20-second failure deadline. No marshalling tests are skipped.
