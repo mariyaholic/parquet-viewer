@@ -121,6 +121,7 @@ fn inspect(
             .collect(),
         coverage,
         details,
+        page: None,
     }
     .bounded())
 }
@@ -141,4 +142,127 @@ mod tests {
         assert_ne!(value(&Null), value(&Text("<null>".into())));
         assert_ne!(value(&Null), value(&Text(String::new())));
     }
+}
+
+#[cfg(test)]
+mod browse_tests {
+    use super::*;
+    #[test]
+    fn desktop_page_has_real_source_offsets_and_detects_stale_sources() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/trades.parquet");
+        let request = viewer_shell::browse::Request {
+            offset: 1,
+            ..Default::default()
+        };
+        let page = browse(&path, &request).unwrap();
+        assert_eq!(page.page.as_ref().unwrap().source_rows[0], 1);
+        let mut request = viewer_shell::browse::Request {
+            query: "definitely absent literal.*".into(),
+            ..Default::default()
+        };
+        let missing = browse(&path, &request).unwrap();
+        assert!(missing.rows.is_empty());
+        assert!(missing.page.unwrap().next.is_none());
+        request.expected = Some(viewer_shell::browse::Stamp {
+            bytes: 0,
+            modified_ns: None,
+        });
+        assert!(browse(&path, &request).unwrap_err().contains("changed"));
+    }
+}
+
+/// Desktop-only seekable read. Explorer Low-IL/stream protocol is unchanged.
+pub fn browse(path: &Path, request: &viewer_shell::browse::Request) -> Result<Table, String> {
+    request.validate()?;
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let meta = file.metadata().map_err(|e| e.to_string())?;
+    let stamp = viewer_shell::browse::Stamp::from_metadata(&meta);
+    if !meta.is_file() {
+        return Err("Choose a regular local file".into());
+    }
+    if request.expected.as_ref().is_some_and(|s| *s != stamp) {
+        return Err("Source changed; Reload before continuing".into());
+    }
+
+    let limits = parquet_preview_core::Limits {
+        max_sample_columns: 64,
+        max_sample_offset: u64::MAX,
+        ..Default::default()
+    };
+    let session = parquet_preview_core::Session::open(
+        Box::new(file.try_clone().map_err(|e| e.to_string())?),
+        &limits,
+    )
+    .map_err(|e| e.to_string())?;
+    let total = session.summary().row_count.value;
+    let mut cursor = request.offset;
+    let mut rows = Vec::new();
+    let mut source_rows = Vec::new();
+    let mut retained = 0usize;
+    let needle = request.query.to_lowercase();
+    let began = std::time::Instant::now();
+    let mut scanned = 0u64;
+    'pages: while cursor < total
+        && rows.len() < 200
+        && scanned < 20_000
+        && began.elapsed() < std::time::Duration::from_secs(20)
+    {
+        let sample = session.sample(cursor, 200).map_err(|e| e.to_string())?;
+        if sample.offset != cursor || sample.rows.is_empty() {
+            return Err(format!(
+                "Cannot decode source row {}: {}",
+                cursor.saturating_add(1),
+                sample.message
+            ));
+        }
+        for row in sample.rows {
+            let values: Vec<String> = row.values.iter().map(value).collect();
+            let matches =
+                needle.is_empty() || values.iter().any(|v| v.to_lowercase().contains(&needle));
+            let cost: usize = values.iter().map(String::len).sum();
+            if matches && retained + cost > 4 * 1024 * 1024 {
+                break 'pages;
+            }
+            if matches {
+                retained += cost;
+                rows.push(values);
+                source_rows.push(cursor);
+            }
+            cursor += 1;
+            scanned += 1;
+            if rows.len() == 200 {
+                break;
+            }
+        }
+        if retained >= 4 * 1024 * 1024 {
+            break;
+        }
+    }
+    if viewer_shell::browse::Stamp::from_metadata(&file.metadata().map_err(|e| e.to_string())?)
+        != stamp
+    {
+        return Err("Source changed while reading; Reload".into());
+    }
+    let next = (cursor < total).then_some(cursor);
+    let first = session
+        .sample(request.offset, 1)
+        .map_err(|e| e.to_string())?;
+    let coverage=format!("{} page rows; scanned {} rows from {}; {}. {} metadata-reported rows (unverified). Search covers bounded displayed values / first 64 columns.",rows.len(),scanned,request.offset.saturating_add(1),if next.is_some(){"Next continues reading/search"}else{"metadata row range exhausted"},total);
+    let details = serde_json::to_string_pretty(session.summary()).map_err(|e| e.to_string())?;
+    Ok(Table {
+        columns: first.columns,
+        rows,
+        coverage,
+        details,
+        page: Some(viewer_shell::browse::Page {
+            start: request.offset,
+            next,
+            source_rows,
+            stamp,
+            next_byte: None,
+            scanned_to: cursor,
+        }),
+    }
+    .bounded())
 }

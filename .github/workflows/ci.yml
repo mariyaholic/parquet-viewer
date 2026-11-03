@@ -38,6 +38,10 @@ jobs:
           Copy-Item assets/desktop-fonts target/debug/fonts -Recurse -Force
           & target/native-smoke.exe 'target\debug\parquet-desktop.exe' 'tests\fixtures\trades.parquet' Parquet target '2024-01-01T00:00:00Z'
           if ($LASTEXITCODE -ne 0) { throw "Native standalone smoke failed" }
+          & target/debug/parquet-preview-fixtures.exe '--browse' 'target/pages.parquet'
+          if ($LASTEXITCODE -ne 0) { throw "Paging fixture generation failed" }
+          & target/native-smoke.exe 'target\debug\parquet-desktop.exe' 'target\pages.parquet' Parquet target '0' '--browse'
+          if ($LASTEXITCODE -ne 0) { throw "Native paging/search smoke failed" }
       # The offline inventory covers all locked targets, not only the MSVC
       # packages downloaded by the native build above.
       - name: Fetch locked dependencies for offline licence inventory

@@ -599,3 +599,45 @@ mod tests {
         assert_eq!(civil(19_723), (2024, 1, 1));
     }
 }
+
+/// Deterministic paging/search fixture, emitted in bounded batches.
+pub fn write_browse(path: &Path, rows: usize) -> io::Result<()> {
+    let schema = Arc::new(arrow_schema::Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+        Field::new("note", DataType::Utf8, false),
+        Field::new("payload", DataType::Utf8, false),
+    ]));
+    let properties = WriterProperties::builder()
+        .set_max_row_group_row_count(Some(500))
+        .set_compression(Compression::UNCOMPRESSED)
+        .set_dictionary_enabled(false)
+        .build();
+    let mut writer = ArrowWriter::try_new(File::create(path)?, schema.clone(), Some(properties))
+        .map_err(|e| io::Error::other(e.to_string()))?;
+    for start in (0..rows).step_by(500) {
+        let end = (start + 500).min(rows);
+        let ids = Int32Array::from((start..end).map(|i| i as i32).collect::<Vec<_>>());
+        let notes = StringArray::from(
+            (start..end)
+                .map(|i| if i == 450 { "NEEDLE.*" } else { "ordinary" })
+                .collect::<Vec<_>>(),
+        );
+        let payloads = StringArray::from(
+            (start..end)
+                .map(|i| format!("{i:08}{}", "x".repeat(1024)))
+                .collect::<Vec<_>>(),
+        );
+        let batch = arrow_array::RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(ids), Arc::new(notes), Arc::new(payloads)],
+        )
+        .map_err(|e| io::Error::other(e.to_string()))?;
+        writer
+            .write(&batch)
+            .map_err(|e| io::Error::other(e.to_string()))?;
+    }
+    writer
+        .close()
+        .map_err(|e| io::Error::other(e.to_string()))?;
+    Ok(())
+}
