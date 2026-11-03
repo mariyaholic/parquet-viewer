@@ -1,5 +1,21 @@
 # Third-party software
 
+## Standalone desktop additions
+
+The standalone shell adds `tempfile = 3.10.1` (MIT OR Apache-2.0) for
+operation-private spools; its transitive notice additions are included in
+THIRD_PARTY_LICENSES.txt. No UI framework or second Windows bindings family
+is introduced; the shell uses raw Win32 FFI.
+
+Private font assets: Cinzel, Outfit and JetBrains Mono, from Google Fonts
+`ofl/cinzel`, `ofl/outfit`, `ofl/jetbrainsmono`, each SIL OFL 1.1. Full copyright
+and licence texts ship beside the original TTF files in assets/desktop-fonts/
+and the portable fonts/ directory. Fonts are not Rust dependencies, are not
+globally installed, and are not relicensed as Apache-2.0. No proprietary Windows
+fonts are redistributed. GNU runtime review / official MSVC signing remain
+separate release gates.
+
+
 The project is Apache-2.0. This file records the third-party packages used by
 the shipped targets and by the build. It is generated from `Cargo.lock` and
 `cargo metadata`; the exact versions are pinned in `Cargo.lock`.

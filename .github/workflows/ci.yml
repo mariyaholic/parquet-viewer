@@ -3,6 +3,12 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
+  design:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: python3 tools/validate_design.py
+      - run: python3 -m unittest discover -s tools -p 'test_design.py'
   windows:
     runs-on: windows-latest
     steps:
@@ -10,12 +16,40 @@ jobs:
       - uses: dtolnay/rust-toolchain@ccc8c1f930153b792217f06c65a38f23a882993a # 1.85.1
         with:
           components: rustfmt, clippy
+      - name: Add Windows SDK resource compiler
+        shell: pwsh
+        run: |
+          $compiler = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\rc.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $compiler) { throw "Windows SDK rc.exe was not found" }
+          $compiler.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets
       - run: cargo build --locked --workspace
       - run: cargo test --locked --workspace
+      - name: Native standalone control smoke
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "MSVC developer tools were not found" }
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+          cmd /c "`"$vcvars`" >nul && cl /nologo /utf-8 /W3 /Fotarget\native-smoke.obj /Fetarget\native-smoke.exe crates\viewer-shell\tests\native-smoke.c user32.lib comctl32.lib gdi32.lib"
+          if ($LASTEXITCODE -ne 0) { throw "Native smoke compilation failed" }
+          Copy-Item assets/desktop-fonts target/debug/fonts -Recurse -Force
+          & target/native-smoke.exe 'target\debug\parquet-desktop.exe' 'tests\fixtures\trades.parquet' Parquet target '2024-01-01T00:00:00Z'
+          if ($LASTEXITCODE -ne 0) { throw "Native standalone smoke failed" }
+      # The offline inventory covers all locked targets, not only the MSVC
+      # packages downloaded by the native build above.
+      - name: Fetch locked dependencies for offline licence inventory
+        run: cargo fetch --locked
       - name: Check third-party licence bundle is current
-        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/generate-third-party-licenses.ps1 -Check
+        shell: pwsh
+        run: |
+          foreach ($culture in @('en-US', 'tr-TR', 'sv-SE')) {
+            [System.Globalization.CultureInfo]::CurrentCulture = [System.Globalization.CultureInfo]::GetCultureInfo($culture)
+            & ./scripts/generate-third-party-licenses.ps1 -Check
+            if ($LASTEXITCODE -ne 0) { throw "Licence check failed under $culture" }
+          }
       # Opt-in end-to-end COM harness: the only test that drives the real class
       # factory, handler, IStream and isolated worker process together.
       - name: End-to-end COM harness
@@ -53,6 +87,12 @@ jobs:
       # on the fresh runner first.
       - name: Fetch dependencies for the offline build
         run: cargo fetch --locked
+      - name: Add Windows SDK resource compiler
+        shell: pwsh
+        run: |
+          $compiler = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\rc.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $compiler) { throw "Windows SDK rc.exe was not found" }
+          $compiler.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Build the Windows artefacts
         run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Version "${{ github.ref_name }}"
       - name: Attach the release zip
