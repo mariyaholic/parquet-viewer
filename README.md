@@ -2,6 +2,12 @@ Made by Maria
 
 # Parquet viewer and preview
 
+## Documentation
+
+- [Start here: desktop user guide](docs/USER-GUIDE.md) — opening, browsing, searching, copying and appearance.
+- [Documentation index](docs/README.md) — user help, developer references and Windows acceptance.
+- In the app, choose **Help** for topics or the bundled offline guide; **F1** opens Quick help.
+
 ## Standalone desktop preview
 
 A native Windows desktop companion is now implemented with **Paper, Ink, PC-98,
@@ -41,7 +47,8 @@ Status: v1 implementation. Releases are not code-signed yet.
   "free and open source (Apache-2.0)" notice.
 - A headless CLI for development, diagnostics and non-Windows verification.
 
-There is no SQL, no standalone GUI viewer, no network access, no uploads and no
+There is no SQL or full-file editing. The standalone desktop app above is separate
+from the Explorer/CLI inspection pipeline. There is no data-network access, no uploads and no
 telemetry. MT5/MetaTrader support, if configured later, is strictly read-only:
 this project places no orders and makes no trading calls. It is not affiliated
 with MetaQuotes; MetaTrader 5 and MT5 are trademarks of MetaQuotes Ltd.
