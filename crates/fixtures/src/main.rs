@@ -10,6 +10,25 @@ fn main() -> ExitCode {
         eprintln!("usage: parquet-preview-fixtures <output-directory>");
         return ExitCode::from(2);
     };
+    if dir == "--browse" {
+        let Some(path) = args.next() else {
+            return ExitCode::from(2);
+        };
+        let rows = args
+            .next()
+            .and_then(|x| x.to_str().and_then(|x| x.parse::<usize>().ok()))
+            .unwrap_or(600);
+        if rows > 100_000 {
+            return ExitCode::from(2);
+        }
+        return match parquet_preview_fixtures::write_browse(&PathBuf::from(path), rows) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if args.next().is_some() {
         eprintln!("usage: parquet-preview-fixtures <output-directory>");
         return ExitCode::from(2);
