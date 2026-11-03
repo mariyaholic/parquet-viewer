@@ -11,6 +11,8 @@ sample viewer, not yet a full-file spreadsheet.
 
 [Run/build instructions, limits and remaining native acceptance](docs/STANDALONE-USAGE.md).
 
+[Six-theme design system and future-feature component contracts](design/system/README.md).
+
 
 
 Preview a local Parquet file in Windows Explorer with schema, row-group
