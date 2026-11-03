@@ -98,8 +98,12 @@ impl HandlerState {
         if parent == 0 {
             return Err("preview parent window is null".to_string());
         }
-        if self.hwnd != 0 && self.hwnd != parent {
-            self.destroy_window();
+        // Keep the child HWND stable: the preview thread posts completion to it.
+        if self.hwnd != 0
+            && unsafe { ffi::GetParent(self.hwnd) } != parent
+            && unsafe { ffi::SetParent(self.hwnd, parent) } == 0
+        {
+            return Err("could not reparent the preview window".into());
         }
         if self.hwnd == 0 {
             let (hwnd, edit) = create_window(parent, rect, self.text.clone(), self.colors.clone())?;
@@ -719,6 +723,56 @@ unsafe extern "system" fn edit_proc(
 mod tests {
     use super::*;
 
+    #[test]
+    fn rebinding_preview_preserves_window_and_pending_completion_target() {
+        unsafe fn host() -> ffi::HWND {
+            ffi::CreateWindowExW(
+                0,
+                ffi::wide("STATIC").as_ptr(),
+                ffi::wide("test host").as_ptr(),
+                0,
+                0,
+                0,
+                400,
+                300,
+                0,
+                0,
+                0,
+                std::ptr::null_mut(),
+            )
+        }
+        let a = unsafe { host() };
+        let b = unsafe { host() };
+        assert_ne!(a, 0);
+        assert_ne!(b, 0);
+        let mut state = HandlerState::default();
+        let rect = ffi::RECT {
+            left: 0,
+            top: 0,
+            right: 400,
+            bottom: 300,
+        };
+        state.set_window(a, &rect).unwrap();
+        let original = state.hwnd;
+        state.set_window(a, &rect).unwrap();
+        let repeated = state.hwnd;
+        state.set_window(b, &rect).unwrap();
+        let rebound = state.hwnd;
+        assert_eq!(unsafe { ffi::GetParent(rebound) }, b);
+        state.unload();
+        unsafe {
+            ffi::DestroyWindow(a);
+            ffi::DestroyWindow(b);
+        }
+        assert_eq!(
+            repeated, original,
+            "SetWindow with the existing parent must be idempotent"
+        );
+        assert_eq!(
+            rebound, original,
+            "a pending completion must keep a live target when reparented"
+        );
+    }
     #[test]
     fn lf_text_is_converted_to_crlf() {
         // Every bare LF becomes CRLF...

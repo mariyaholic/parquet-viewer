@@ -13,20 +13,11 @@ use parquet_preview_protocol::{
 };
 use spool::SpoolFile;
 
+#[derive(Default)]
 pub struct WorkerConfig {
     pub limits: Limits,
     pub settings: Settings,
     pub frame_limits: FrameLimits,
-}
-
-impl Default for WorkerConfig {
-    fn default() -> Self {
-        Self {
-            limits: Limits::default(),
-            settings: Settings::default(),
-            frame_limits: FrameLimits::default(),
-        }
-    }
 }
 
 struct OpenDocument {
@@ -233,18 +224,19 @@ impl State {
                     )?;
                     return Ok(Outcome::Continue);
                 }
+                if declared_size == 0 {
+                    write_control(
+                        output,
+                        &Response::Error {
+                            code: ErrorCode::FileError,
+                            message: "the supplied stream is empty".into(),
+                        },
+                    )?;
+                    return Ok(Outcome::Continue);
+                }
                 match SpoolFile::new(self.limits.max_file_bytes) {
                     Ok(spool) => {
                         self.stream = Some(spool);
-                        if declared_size == 0 {
-                            write_control(
-                                output,
-                                &Response::Error {
-                                    code: ErrorCode::FileError,
-                                    message: "the supplied stream is empty".to_string(),
-                                },
-                            )?;
-                        }
                     }
                     Err(error) => {
                         write_control(
@@ -412,19 +404,19 @@ impl State {
     fn open_document(
         &mut self,
     ) -> Result<Option<parquet_preview_core::summary::Summary>, PreviewError> {
-        let Some(stream) = self.stream.as_mut() else {
+        if self.stream.is_none() {
             return Ok(None);
-        };
+        }
         if self.received != self.declared {
             return Err(PreviewError::Stream(format!(
                 "stream incomplete: {} of {} bytes received",
                 self.received, self.declared
             )));
         }
-        let file = stream.take_file()?;
+        let mut spool = self.stream.take().expect("stream checked above");
+        let file = spool.take_file()?;
         let session = Session::open(Box::new(file), &self.limits)?;
         let summary = session.summary().clone();
-        let spool = self.stream.take().expect("stream checked above");
         self.document = Some(OpenDocument {
             session,
             _spool: spool,
