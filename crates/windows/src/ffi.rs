@@ -5,7 +5,8 @@
 //! on Windows and can be type-checked on Linux with the `win-check` feature; it
 //! does not link there.
 
-#![allow(non_snake_case, non_camel_case_types)]
+// Preserve the published Win32/COM type names rather than inventing aliases.
+#![allow(non_snake_case, non_camel_case_types, clippy::upper_case_acronyms)]
 
 use std::ffi::c_void;
 
@@ -294,6 +295,8 @@ extern "system" {
         param: *mut c_void,
     ) -> HWND;
     pub fn DestroyWindow(window: HWND) -> BOOL;
+    pub fn GetParent(window: HWND) -> HWND;
+    pub fn SetParent(window: HWND, parent: HWND) -> HWND;
     pub fn DefWindowProcW(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT;
     pub fn SetWindowPos(
         window: HWND,
