@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: python3 tools/build_docs.py --check
+      - run: python3 -m unittest discover -s tools -p 'test_docs.py'
       - run: python3 tools/validate_design.py
       - run: python3 -m unittest discover -s tools -p 'test_design.py'
   windows:
@@ -36,6 +38,8 @@ jobs:
           cmd /c "`"$vcvars`" >nul && cl /nologo /utf-8 /W3 /Fotarget\native-smoke.obj /Fetarget\native-smoke.exe crates\viewer-shell\tests\native-smoke.c user32.lib comctl32.lib gdi32.lib"
           if ($LASTEXITCODE -ne 0) { throw "Native smoke compilation failed" }
           Copy-Item assets/desktop-fonts target/debug/fonts -Recurse -Force
+          New-Item -ItemType Directory -Force target/debug/help | Out-Null
+          Copy-Item docs/USER-GUIDE.html target/debug/help/index.html -Force
           & target/native-smoke.exe 'target\debug\parquet-desktop.exe' 'tests\fixtures\trades.parquet' Parquet target '2024-01-01T00:00:00Z'
           if ($LASTEXITCODE -ne 0) { throw "Native standalone smoke failed" }
           & target/debug/parquet-preview-fixtures.exe '--browse' 'target/pages.parquet'
