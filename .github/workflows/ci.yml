@@ -43,7 +43,13 @@ jobs:
       - name: Fetch locked dependencies for offline licence inventory
         run: cargo fetch --locked
       - name: Check third-party licence bundle is current
-        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/generate-third-party-licenses.ps1 -Check
+        shell: pwsh
+        run: |
+          foreach ($culture in @('en-US', 'tr-TR', 'sv-SE')) {
+            [System.Globalization.CultureInfo]::CurrentCulture = [System.Globalization.CultureInfo]::GetCultureInfo($culture)
+            & ./scripts/generate-third-party-licenses.ps1 -Check
+            if ($LASTEXITCODE -ne 0) { throw "Licence check failed under $culture" }
+          }
       # Opt-in end-to-end COM harness: the only test that drives the real class
       # factory, handler, IStream and isolated worker process together.
       - name: End-to-end COM harness

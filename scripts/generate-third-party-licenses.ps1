@@ -27,6 +27,9 @@ if ($LASTEXITCODE -ne 0) { throw "cargo metadata failed (exit $LASTEXITCODE)" }
 $metadata = ($raw -join "`n") | ConvertFrom-Json
 
 $licenseFilePattern = '^(LICENSE|LICENCE|COPYING|COPYRIGHT|NOTICE|UNLICENSE)'
+$licenseFileOptions = [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor
+    [System.Text.RegularExpressions.RegexOptions]::CultureInvariant
+$licenseFileRegex = [regex]::new($licenseFilePattern, $licenseFileOptions)
 $sections = New-Object System.Collections.Generic.List[object]
 
 foreach ($pkg in $metadata.packages) {
@@ -49,13 +52,13 @@ foreach ($pkg in $metadata.packages) {
         # the bundle. Ordinal order is identical everywhere.
         $matched = @(
             Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -match $licenseFilePattern }
+                Where-Object { $licenseFileRegex.IsMatch($_.Name) }
         )
         $matchedNames = [string[]]@($matched | ForEach-Object { $_.Name })
         if ($matchedNames.Length -gt 0) {
             [Array]::Sort($matchedNames, [System.StringComparer]::Ordinal)
             foreach ($name in $matchedNames) {
-                $files.Add(($matched | Where-Object { $_.Name -eq $name })[0])
+                $files.Add(($matched | Where-Object { [StringComparer]::Ordinal.Equals($_.Name, $name) })[0])
             }
         }
     }
@@ -76,7 +79,16 @@ foreach ($pkg in $metadata.packages) {
         })
 }
 
-$ordered = $sections | Sort-Object Name, Version
+# Package order must be ordinal too: culture-aware sorting moves
+# windows_x86_64_gnu before windows-link, unlike the checked-in inventory.
+# Keep both package and licence-file ordering independent of host culture.
+$ordered = [object[]]$sections.ToArray()
+[Array]::Sort($ordered, [System.Collections.Generic.Comparer[object]]::Create({
+    param($left, $right)
+    $nameOrder = [StringComparer]::Ordinal.Compare($left.Name, $right.Name)
+    if ($nameOrder -ne 0) { return $nameOrder }
+    return [StringComparer]::Ordinal.Compare($left.Version, $right.Version)
+}))
 $rule = '=' * 78
 $sb = New-Object System.Text.StringBuilder
 foreach ($line in @(
