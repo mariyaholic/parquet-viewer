@@ -328,3 +328,55 @@ fn scan_response_has_exact_count() {
         other => panic!("unexpected {other:?}"),
     }
 }
+
+#[test]
+fn rejected_empty_stream_returns_to_idle_instead_of_leaving_a_spool() {
+    let mut d = Driver::default();
+    hello(&mut d);
+    d.send(&Request::OpenStream { declared_size: 0 });
+    d.send(&Request::Inspect);
+    d.send(&Request::About);
+    let r = d.run_default();
+    assert!(matches!(
+        r[1],
+        Response::Error {
+            code: ErrorCode::FileError,
+            ..
+        }
+    ));
+    assert!(matches!(
+        r[2],
+        Response::Error {
+            code: ErrorCode::NoFile,
+            ..
+        }
+    ));
+    assert!(matches!(r[3], Response::About { .. }));
+}
+#[test]
+fn failed_inspection_does_not_leave_a_consumed_spool_as_an_open_stream() {
+    let mut d = Driver::default();
+    hello(&mut d);
+    d.send(&Request::OpenStream { declared_size: 8 });
+    d.chunk(b"notafile");
+    d.send(&Request::Inspect);
+    d.send(&Request::Inspect);
+    d.stream_file(fixtures::TRADES);
+    d.send(&Request::Inspect);
+    let r = d.run_default();
+    assert!(matches!(
+        r[2],
+        Response::Error {
+            code: ErrorCode::FileError,
+            ..
+        }
+    ));
+    assert!(matches!(
+        r[3],
+        Response::Error {
+            code: ErrorCode::NoFile,
+            ..
+        }
+    ));
+    assert!(matches!(r.last().unwrap(), Response::Summary { .. }));
+}
