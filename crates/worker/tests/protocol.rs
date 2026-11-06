@@ -380,3 +380,22 @@ fn failed_inspection_does_not_leave_a_consumed_spool_as_an_open_stream() {
     ));
     assert!(matches!(r.last().unwrap(), Response::Summary { .. }));
 }
+
+#[test]
+fn empty_chunks_after_completion_do_not_duplicate_acceptance() {
+    let mut driver = Driver::default();
+    hello(&mut driver);
+    driver.send(&Request::OpenStream { declared_size: 3 });
+    driver.chunk(b"abc");
+    for _ in 0..10_000 {
+        driver.chunk(b"");
+    }
+    driver.send(&Request::About);
+    driver.send(&Request::Shutdown);
+    let responses = driver.run_default();
+    assert_eq!(responses.len(), 4);
+    assert!(matches!(responses[0], Response::Welcome { .. }));
+    assert_eq!(responses[1], Response::StreamAccepted { bytes: 3 });
+    assert!(matches!(responses[2], Response::About { .. }));
+    assert_eq!(responses[3], Response::Bye);
+}
