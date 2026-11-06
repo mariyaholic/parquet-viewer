@@ -128,6 +128,7 @@ impl WorkerClient {
                 };
                 Ok(client)
             }
+            Response::Error { code, message } => Err(ClientError::Worker { code, message }),
             other => Err(ClientError::Unexpected(format!("{other:?}"))),
         }
     }

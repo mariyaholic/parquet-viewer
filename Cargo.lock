@@ -608,6 +608,7 @@ dependencies = [
 name = "parquet-preview-worker"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "parquet-preview-client",
  "parquet-preview-core",
  "parquet-preview-fixtures",

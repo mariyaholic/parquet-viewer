@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Per-user settings. Local only; no network access and no telemetry.
 
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -35,10 +37,15 @@ impl Settings {
 
     /// Load a settings file, returning defaults when it does not exist.
     pub fn load_from(path: &Path) -> Result<Self> {
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-        let bytes = std::fs::read(path)?;
+        let file = match std::fs::File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self::default())
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let mut bytes = Vec::new();
+        file.take(1024 * 1024 + 1).read_to_end(&mut bytes)?;
         if bytes.len() > 1024 * 1024 {
             return Err(crate::PreviewError::Limit(
                 "settings file exceeds 1 MiB".to_string(),
@@ -57,7 +64,12 @@ impl Settings {
         }
         let json = serde_json::to_vec_pretty(self)
             .map_err(|e| crate::PreviewError::Profile(format!("cannot encode settings: {e}")))?;
-        std::fs::write(path, json)?;
+        if json.len() > 1024 * 1024 {
+            return Err(crate::PreviewError::Limit(
+                "settings file exceeds 1 MiB".into(),
+            ));
+        }
+        atomic_save_with(path, |file| file.write_all(&json))?;
         Ok(())
     }
 
@@ -69,6 +81,45 @@ impl Settings {
             None => Ok(Self::default()),
         }
     }
+}
+
+// Fully prepare a same-directory unique file before replacing existing bytes.
+// No fallback truncation or destination deletion on failure.
+fn atomic_save_with(
+    path: &Path,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let (temp, mut file) = loop {
+        let temp = parent.join(format!(
+            ".parquet-settings-{}-{}.tmp",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&temp) {
+            Ok(file) => break (temp, file),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    };
+    let result = write(&mut file).and_then(|_| file.sync_all());
+    drop(file);
+    let result = result.and_then(|_| std::fs::rename(&temp, path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
 }
 
 pub fn default_settings_path() -> Option<PathBuf> {
@@ -118,6 +169,27 @@ mod tests {
         dir
     }
 
+    #[test]
+    fn read_errors_are_not_defaults_and_failed_save_preserves_previous_bytes() {
+        let dir = temp_dir();
+        assert!(Settings::load_from(&dir).is_err());
+        let path = dir.join("settings.json");
+        let good = b"{}";
+        std::fs::write(&path, good).unwrap();
+        let error = atomic_save_with(&path, |file| {
+            file.write_all(b"partial")?;
+            Err(std::io::Error::other("injected write/flush failure"))
+        });
+        assert!(error.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), good);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        let blocked = dir.join("blocked");
+        std::fs::create_dir(&blocked).unwrap();
+        assert!(atomic_save_with(&blocked, |file| file.write_all(b"complete")).is_err());
+        assert!(blocked.is_dir());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn defaults_round_trip() {
         let dir = temp_dir();
