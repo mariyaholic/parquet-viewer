@@ -52,11 +52,10 @@ impl SpoolFile {
                 // O_TMPFILE creates an unnamed inode: no pathname cleanup can
                 // race with replacement. Refuse unsupported filesystems rather
                 // than fall back to deleting a shared-temp name.
-                const O_TMPFILE: i32 = 0x410000;
                 let file = OpenOptions::new()
                     .read(true)
                     .write(true)
-                    .custom_flags(O_TMPFILE)
+                    .custom_flags(libc::O_TMPFILE)
                     .mode(0o600)
                     .open(&dir)?;
                 return Ok(Self {

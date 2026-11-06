@@ -14,6 +14,9 @@ parquet-preview-core = { path = "../core" }
 parquet-preview-protocol = { path = "../protocol" }
 serde_json.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2.191"
+
 [dev-dependencies]
 parquet-preview-fixtures = { path = "../fixtures" }
 parquet-preview-client = { path = "../client" }
