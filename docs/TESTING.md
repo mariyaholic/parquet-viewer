@@ -126,8 +126,8 @@ explicitly enabled, not counted from its default early return.
 3. Streaming: **partial**. Real COM stream marshalling and the 200 MiB client
    transfer test are included without skip filters. Native SMB/selection-change
    responsiveness remains pending; see STATUS.md for final suite outcome.
-4. Temp leak: **partial**. Delete-on-close worker-kill and old-spool sweep
-   regressions run; native x20 Explorer changes and job-limit stress are pending.
+4. Temp leak: **partial**. Delete-on-close worker-kill is covered; unsafe shared-temp sweeping
+   is disabled and unrelated/active-file preservation has a regression; native x20 Explorer changes and job-limit stress are pending.
 5. Takeover backup: **automated corroboration passed**. Foreign takeover,
    force-register and restore regressions run. Native installer workflow is pending.
 6. Registration order: **automated corroboration passed** via a write-failure
