@@ -2,6 +2,7 @@
 //! Isolated worker: versioned protocol, bounded spool, read-only inspection.
 
 pub mod spool;
+mod stream_receipt;
 
 use std::io::{BufReader, Read, Write};
 
@@ -72,22 +73,25 @@ pub fn serve<R: Read, W: Write>(
             }
         };
         match frame {
-            Frame::StreamChunk(chunk) => match state.accept_chunk(&chunk) {
-                Ok(()) => {
-                    if state.declared > 0 && state.received == state.declared {
-                        let _ = write_control(
-                            &mut output,
-                            &Response::StreamAccepted {
-                                bytes: state.received,
-                            },
-                        );
+            Frame::StreamChunk(chunk) => {
+                let before = state.received;
+                match state.accept_chunk(&chunk) {
+                    Ok(()) => {
+                        if stream_receipt::newly_complete(before, state.received, state.declared) {
+                            let _ = write_control(
+                                &mut output,
+                                &Response::StreamAccepted {
+                                    bytes: state.received,
+                                },
+                            );
+                        }
+                    }
+                    Err((code, message)) => {
+                        let _ = write_control(&mut output, &Response::Error { code, message });
+                        return Ok(());
                     }
                 }
-                Err((code, message)) => {
-                    let _ = write_control(&mut output, &Response::Error { code, message });
-                    return Ok(());
-                }
-            },
+            }
             Frame::Control(payload) => {
                 let request: Request = match serde_json::from_slice(&payload) {
                     Ok(request) => request,
