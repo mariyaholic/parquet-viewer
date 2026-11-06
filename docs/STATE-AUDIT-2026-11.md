@@ -25,3 +25,18 @@ ordinary request responses. Fault-injecting tests fail before or inside the
 chunk-response frame and assert that no further request is read. Malformed
 incoming framing still closes without attempting resynchronization; this is
 separate from a failed outgoing response.
+
+
+## Additional review corrections
+
+Shared-temp sweeping is disabled. Name and age never establish ownership or
+worker liveness. Existing Windows delete-on-close and owned SpoolFile cleanup
+remain; abandoned files from older builds need user-directed cleanup.
+
+Settings reads return defaults only for NotFound, read at most 1 MiB plus the
+overflow byte, and surface all other read/parse/validation errors. Worker
+startup sends a protocol error and exits instead of silently using defaults.
+Settings saves stage in an exclusive same-directory file, sync, close and
+rename without truncating the destination. Failed preparation/publication
+preserves prior bytes. Concurrent saves remain last-writer-wins; directory
+sync/power-loss durability and external modifications are not guaranteed.

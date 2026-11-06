@@ -23,17 +23,28 @@ fn main() -> ExitCode {
     let settings = match Settings::load_default() {
         Ok(settings) => settings,
         Err(error) => {
-            eprintln!("parquet-preview-worker: settings ignored: {error}");
-            Settings::default()
+            let message = parquet_preview_protocol::bounded_message(&format!(
+                "Settings could not be loaded: {error}"
+            ));
+            eprintln!("parquet-preview-worker: {message}");
+            // Send a visible protocol failure instead of certifying a preview
+            // under defaults the user did not request.
+            let _ = parquet_preview_protocol::write_control(
+                &mut io::stdout().lock(),
+                &parquet_preview_protocol::Response::Error {
+                    code: parquet_preview_protocol::ErrorCode::FileError,
+                    message,
+                },
+            );
+            return ExitCode::FAILURE;
         }
     };
     let config = WorkerConfig {
         settings,
         ..Default::default()
     };
-    // Belt-and-braces: remove spool files leaked by a crash or an older build.
-    // Delete-on-close handles the routine kill path. Best effort, never fatal.
-    let _ = parquet_preview_worker::spool::sweep_stale_spools(std::time::Duration::from_secs(3600));
+    // No shared-temp sweep: a filename and age cannot establish ownership or
+    // whether another worker still uses a file. Owned handles clean up spools.
     let stdin = io::stdin();
     let stdout = io::stdout();
     match serve(stdin.lock(), stdout.lock(), config) {
