@@ -78,16 +78,18 @@ pub fn serve<R: Read, W: Write>(
                 match state.accept_chunk(&chunk) {
                     Ok(()) => {
                         if stream_receipt::newly_complete(before, state.received, state.declared) {
-                            let _ = write_control(
+                            write_control(
                                 &mut output,
                                 &Response::StreamAccepted {
                                     bytes: state.received,
                                 },
-                            );
+                            )
+                            .map_err(protocol_write_error)?;
                         }
                     }
                     Err((code, message)) => {
-                        let _ = write_control(&mut output, &Response::Error { code, message });
+                        write_control(&mut output, &Response::Error { code, message })
+                            .map_err(protocol_write_error)?;
                         return Ok(());
                     }
                 }
@@ -96,13 +98,14 @@ pub fn serve<R: Read, W: Write>(
                 let request: Request = match serde_json::from_slice(&payload) {
                     Ok(request) => request,
                     Err(error) => {
-                        let _ = write_control(
+                        write_control(
                             &mut output,
                             &Response::Error {
                                 code: ErrorCode::ProtocolError,
                                 message: bounded_message(&error.to_string()),
                             },
-                        );
+                        )
+                        .map_err(protocol_write_error)?;
                         return Ok(());
                     }
                 };
@@ -110,12 +113,21 @@ pub fn serve<R: Read, W: Write>(
                     Ok(Outcome::Continue) => {}
                     Ok(Outcome::Close) => return Ok(()),
                     Err(error) => {
-                        eprintln!("parquet-preview-worker: protocol write error: {error}");
-                        return Ok(());
+                        return Err(protocol_write_error(error));
                     }
                 }
             }
         }
+    }
+}
+
+// A partial response is terminal: the peer cannot safely find the next frame.
+// Keep the original I/O kind when available; serialization/cap failures also
+// terminate rather than attempting to continue on an unacknowledged request.
+fn protocol_write_error(error: parquet_preview_protocol::ProtocolError) -> std::io::Error {
+    match error {
+        parquet_preview_protocol::ProtocolError::Io(error) => error,
+        error => std::io::Error::other(error),
     }
 }
 
@@ -170,7 +182,7 @@ impl State {
                                 ),
                             },
                         )?;
-                        let _ = write_control(output, &Response::Bye);
+                        write_control(output, &Response::Bye)?;
                         return Ok(Outcome::Close);
                     }
                     self.hello = true;
@@ -379,7 +391,7 @@ impl State {
                         let text = parquet_preview_core::report::render(&report);
                         let response = Response::Preview { report, text };
                         if !self.try_write_response(output, &response)? {
-                            let _ = write_control(
+                            write_control(
                                 output,
                                 &Response::Error {
                                     code: ErrorCode::Internal,
@@ -387,7 +399,7 @@ impl State {
                                         "preview response exceeded the control-frame cap; request fewer sample rows"
                                             .to_string(),
                                 },
-                            );
+                            )?;
                         }
                     }
                     Err(error) => self.reply_error(output, ErrorCode::Internal, &error)?,

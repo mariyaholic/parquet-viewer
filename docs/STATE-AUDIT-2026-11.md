@@ -15,3 +15,13 @@ All 168 tracked blobs from pinned main, including the formerly unavailable binar
 The original worker audit could not run the full Arrow-dependent suite. This PR adds a full Linux workspace job alongside the existing native Windows build/tests, standalone control/paging smoke and opt-in COM end-to-end harness. Only the exact-head CI result establishes those stages as passed. The local host lacks a Windows resource compiler/linker; Wine aborts at prefix initialization before application launch. No real Explorer installation or broad interactive hardware/display acceptance is claimed.
 
 The existing STATE-MACHINES document remains a subsystem inventory, not proof of all interleavings. No merge, release or deployment is performed.
+
+
+## Response-write failures
+
+Any failed protocol response write now terminates serve with an I/O error,
+including StreamAccepted, chunk rejection, malformed-control replies, and
+ordinary request responses. Fault-injecting tests fail before or inside the
+chunk-response frame and assert that no further request is read. Malformed
+incoming framing still closes without attempting resynchronization; this is
+separate from a failed outgoing response.
