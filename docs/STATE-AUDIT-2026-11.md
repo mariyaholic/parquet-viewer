@@ -40,3 +40,13 @@ Settings saves stage in an exclusive same-directory file, sync, close and
 rename without truncating the destination. Failed preparation/publication
 preserves prior bytes. Concurrent saves remain last-writer-wins; directory
 sync/power-loss durability and external modifications are not guaranteed.
+
+## Handle-owned spool lifetime
+
+Spool Drop no longer deletes a pathname after closing the owned file. Windows
+relies only on delete-on-close for the owned object. Linux creates an anonymous
+O_TMPFILE inode and refuses filesystems that do not support it, rather than
+falling back to a shared-temp deletion race. Other operating systems fail with
+Unsupported. The diagnostic Linux name is not a directory entry. Six tests of
+the actual spool module passed on Linux, including preservation of a replacement
+at the old name and active/unrelated retention. Final native tests remain in CI.
