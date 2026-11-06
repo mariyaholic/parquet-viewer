@@ -380,3 +380,88 @@ fn failed_inspection_does_not_leave_a_consumed_spool_as_an_open_stream() {
     ));
     assert!(matches!(r.last().unwrap(), Response::Summary { .. }));
 }
+
+#[test]
+fn empty_chunks_after_completion_do_not_duplicate_acceptance() {
+    let mut driver = Driver::default();
+    hello(&mut driver);
+    driver.send(&Request::OpenStream { declared_size: 3 });
+    driver.chunk(b"abc");
+    for _ in 0..10_000 {
+        driver.chunk(b"");
+    }
+    driver.send(&Request::About);
+    driver.send(&Request::Shutdown);
+    let responses = driver.run_default();
+    assert_eq!(responses.len(), 4);
+    assert!(matches!(responses[0], Response::Welcome { .. }));
+    assert_eq!(responses[1], Response::StreamAccepted { bytes: 3 });
+    assert!(matches!(responses[2], Response::About { .. }));
+    assert_eq!(responses[3], Response::Bye);
+}
+
+// A writer that fails partway through the response following Welcome.
+struct FailingWriter {
+    remaining: usize,
+}
+impl std::io::Write for FailingWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.remaining == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "injected",
+            ));
+        }
+        let count = self.remaining.min(bytes.len());
+        self.remaining -= count;
+        Ok(count)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+// Do not prefetch beyond the tested chunk. Any attempt to read the next
+// request would fail this test even if serve later reports some other error.
+struct NoMoreInput {
+    input: Cursor<Vec<u8>>,
+}
+impl std::io::Read for NoMoreInput {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        assert!(
+            (self.input.position() as usize) < self.input.get_ref().len(),
+            "worker read another request after its response write failed"
+        );
+        let n = bytes.len().min(1);
+        std::io::Read::read(&mut self.input, &mut bytes[..n])
+    }
+}
+
+#[test]
+fn broken_chunk_response_is_terminal_for_acceptance_and_rejection() {
+    let mut greeting = Driver::default();
+    hello(&mut greeting);
+    let mut welcome = Vec::new();
+    serve(
+        Cursor::new(greeting.input),
+        &mut welcome,
+        WorkerConfig::default(),
+    )
+    .unwrap();
+    for accepted in [true, false] {
+        for partial_bytes in [0, 2, 6] {
+            let mut driver = Driver::default();
+            hello(&mut driver);
+            driver.send(&Request::OpenStream { declared_size: 1 });
+            driver.chunk(if accepted { b"x" } else { b"xx" });
+            let input = NoMoreInput {
+                input: Cursor::new(driver.input),
+            };
+            let writer = FailingWriter {
+                remaining: welcome.len() + partial_bytes,
+            };
+            let err = serve(input, writer, WorkerConfig::default()).unwrap_err();
+            assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe);
+        }
+    }
+}
