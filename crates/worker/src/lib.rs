@@ -19,6 +19,8 @@ pub struct WorkerConfig {
     pub limits: Limits,
     pub settings: Settings,
     pub frame_limits: FrameLimits,
+    /// Defer initialization errors until Hello so the peer can receive them.
+    pub startup_error: Option<String>,
 }
 
 struct OpenDocument {
@@ -36,6 +38,7 @@ struct State {
     declared: u64,
     received: u64,
     document: Option<OpenDocument>,
+    startup_error: Option<String>,
 }
 
 enum Outcome {
@@ -59,6 +62,7 @@ pub fn serve<R: Read, W: Write>(
         declared: 0,
         received: 0,
         document: None,
+        startup_error: config.startup_error,
     };
 
     loop {
@@ -183,6 +187,16 @@ impl State {
                             },
                         )?;
                         write_control(output, &Response::Bye)?;
+                        return Ok(Outcome::Close);
+                    }
+                    if let Some(message) = self.startup_error.take() {
+                        write_control(
+                            output,
+                            &Response::Error {
+                                code: ErrorCode::FileError,
+                                message: bounded_message(&message),
+                            },
+                        )?;
                         return Ok(Outcome::Close);
                     }
                     self.hello = true;

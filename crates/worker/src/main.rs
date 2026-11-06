@@ -20,27 +20,17 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let settings = match Settings::load_default() {
-        Ok(settings) => settings,
-        Err(error) => {
-            let message = parquet_preview_protocol::bounded_message(&format!(
-                "Settings could not be loaded: {error}"
-            ));
-            eprintln!("parquet-preview-worker: {message}");
-            // Send a visible protocol failure instead of certifying a preview
-            // under defaults the user did not request.
-            let _ = parquet_preview_protocol::write_control(
-                &mut io::stdout().lock(),
-                &parquet_preview_protocol::Response::Error {
-                    code: parquet_preview_protocol::ErrorCode::FileError,
-                    message,
-                },
-            );
-            return ExitCode::FAILURE;
-        }
+    let (settings, startup_error) = match Settings::load_default() {
+        Ok(settings) => (settings, None),
+        Err(error) => (
+            Settings::default(),
+            Some(format!("Settings could not be loaded: {error}")),
+        ),
     };
+    let failed_startup = startup_error.is_some();
     let config = WorkerConfig {
         settings,
+        startup_error,
         ..Default::default()
     };
     // No shared-temp sweep: a filename and age cannot establish ownership or
@@ -48,7 +38,8 @@ fn main() -> ExitCode {
     let stdin = io::stdin();
     let stdout = io::stdout();
     match serve(stdin.lock(), stdout.lock(), config) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(()) if !failed_startup => ExitCode::SUCCESS,
+        Ok(()) => ExitCode::FAILURE,
         Err(error) => {
             eprintln!("parquet-preview-worker: {error}");
             ExitCode::FAILURE
