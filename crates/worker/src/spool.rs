@@ -46,42 +46,71 @@ impl SpoolFile {
                     .map(|d| d.subsec_nanos())
                     .unwrap_or(0)
             ));
-            let mut options = OpenOptions::new();
-            options.read(true).write(true).create_new(true);
-            #[cfg(unix)]
+            #[cfg(target_os = "linux")]
             {
                 use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
+                // O_TMPFILE creates an unnamed inode: no pathname cleanup can
+                // race with replacement. Refuse unsupported filesystems rather
+                // than fall back to deleting a shared-temp name.
+                const O_TMPFILE: i32 = 0x410000;
+                let file = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .custom_flags(O_TMPFILE)
+                    .mode(0o600)
+                    .open(&dir)?;
+                return Ok(Self {
+                    path,
+                    file: Some(file),
+                    size: 0,
+                    limit,
+                });
             }
+            #[cfg(not(any(target_os = "linux", windows)))]
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "handle-owned spools are supported on Linux and Windows",
+            )
+            .into());
             #[cfg(windows)]
             {
-                use std::os::windows::fs::OpenOptionsExt;
-                // TerminateProcess runs no destructors, so the `Drop` cleanup
-                // never fires on the routine kill path (selection change, job
-                // memory kill, unload). FILE_FLAG_DELETE_ON_CLOSE makes the
-                // kernel delete the file when the terminated process's last
-                // handle closes. DELETE access must be requested explicitly.
-                const GENERIC_READ: u32 = 0x8000_0000;
-                const GENERIC_WRITE: u32 = 0x4000_0000;
-                const DELETE: u32 = 0x0001_0000;
-                const FILE_SHARE_READ: u32 = 0x0000_0001;
-                const FILE_SHARE_DELETE: u32 = 0x0000_0004;
-                const FILE_FLAG_DELETE_ON_CLOSE: u32 = 0x0400_0000;
-                options.access_mode(GENERIC_READ | GENERIC_WRITE | DELETE);
-                options.share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE);
-                options.custom_flags(FILE_FLAG_DELETE_ON_CLOSE);
-            }
-            match options.open(&path) {
-                Ok(file) => {
-                    return Ok(Self {
-                        path,
-                        file: Some(file),
-                        size: 0,
-                        limit,
-                    })
+                let mut options = OpenOptions::new();
+                options.read(true).write(true).create_new(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.mode(0o600);
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error.into()),
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::OpenOptionsExt;
+                    // TerminateProcess runs no destructors, so the `Drop` cleanup
+                    // never fires on the routine kill path (selection change, job
+                    // memory kill, unload). FILE_FLAG_DELETE_ON_CLOSE makes the
+                    // kernel delete the file when the terminated process's last
+                    // handle closes. DELETE access must be requested explicitly.
+                    const GENERIC_READ: u32 = 0x8000_0000;
+                    const GENERIC_WRITE: u32 = 0x4000_0000;
+                    const DELETE: u32 = 0x0001_0000;
+                    const FILE_SHARE_READ: u32 = 0x0000_0001;
+                    const FILE_SHARE_DELETE: u32 = 0x0000_0004;
+                    const FILE_FLAG_DELETE_ON_CLOSE: u32 = 0x0400_0000;
+                    options.access_mode(GENERIC_READ | GENERIC_WRITE | DELETE);
+                    options.share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE);
+                    options.custom_flags(FILE_FLAG_DELETE_ON_CLOSE);
+                }
+                match options.open(&path) {
+                    Ok(file) => {
+                        return Ok(Self {
+                            path,
+                            file: Some(file),
+                            size: 0,
+                            limit,
+                        })
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => return Err(error.into()),
+                }
             }
         }
         Err(PreviewError::Limit(
@@ -114,8 +143,8 @@ impl SpoolFile {
         self.limit
     }
 
-    /// Flush and hand the file to the reader. The path stays owned here for
-    /// cleanup when the spool is dropped.
+    /// Flush and hand the owned file to the reader. The last handle cleans up
+    /// the unnamed Linux inode or Windows delete-on-close object.
     pub fn take_file(&mut self) -> Result<File> {
         let file = self
             .file
@@ -127,6 +156,7 @@ impl SpoolFile {
         Ok(file)
     }
 
+    /// Diagnostic name. Linux spools are anonymous and have no directory entry.
     pub fn path(&self) -> &std::path::Path {
         &self.path
     }
@@ -135,7 +165,7 @@ impl SpoolFile {
 impl Drop for SpoolFile {
     fn drop(&mut self) {
         self.file.take();
-        let _ = std::fs::remove_file(&self.path);
+        // Never delete by pathname: it may now name someone else's file.
     }
 }
 
@@ -190,7 +220,14 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(a.path()).unwrap().permissions().mode();
+            let mode = a
+                .file
+                .as_ref()
+                .unwrap()
+                .metadata()
+                .unwrap()
+                .permissions()
+                .mode();
             assert_eq!(mode & 0o777, 0o600);
         }
     }
@@ -221,7 +258,27 @@ mod tests {
         drop(unrelated);
         assert_eq!(sweep_stale_spools(std::time::Duration::ZERO), 0);
         assert_eq!(std::fs::read(&path).unwrap(), b"unrelated fixture");
-        assert!(active.path().exists());
+        assert_eq!(active.file.as_ref().unwrap().metadata().unwrap().len(), 6);
         std::fs::remove_file(path).unwrap(); // only the fixture this test created
+    }
+
+    #[test]
+    fn dropping_spool_keeps_a_replacement_at_its_old_name() {
+        let mut spool = SpoolFile::new(16).unwrap();
+        spool.append(b"owned").unwrap();
+        let path = spool.path().to_path_buf();
+        drop(spool.take_file().unwrap());
+        // The owned handle is now closed. Only this synthetic fixture is
+        // created at the diagnostic name; cleanup must not delete it.
+        let mut replacement = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        replacement.write_all(b"replacement").unwrap();
+        drop(replacement);
+        drop(spool);
+        assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+        std::fs::remove_file(path).unwrap();
     }
 }
