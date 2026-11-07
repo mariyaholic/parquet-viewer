@@ -23,6 +23,9 @@ pub fn escape_text(input: &str, max_chars: usize) -> String {
             '\u{202A}'..='\u{202E}'
             | '\u{2066}'..='\u{2069}'
             | '\u{200B}'..='\u{200F}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{061C}'
             | '\u{FEFF}' => out.push_str(&format!("\\u{{{:04X}}}", ch as u32)),
             c => out.push(c),
         }
@@ -58,6 +61,14 @@ mod tests {
     #[test]
     fn escapes_bidi_controls() {
         assert_eq!(escape_text("a\u{202E}b", 20), "a\\u{202E}b");
+    }
+
+    #[test]
+    fn escapes_separators_and_arabic_letter_mark() {
+        assert_eq!(
+            escape_text("a\u{2028}b\u{2029}c\u{061C}d", 20),
+            "a\\u{2028}b\\u{2029}c\\u{061C}d"
+        );
     }
 
     #[test]

@@ -213,27 +213,7 @@ pub fn render(report: &PreviewReport) -> String {
             .map(|scan| scan.date_bounds.as_slice())
             .unwrap_or(report.summary.date_bounds.as_slice());
         for bound in bounds {
-            let status = match bound.status {
-                crate::CoverageStatus::Complete => "complete",
-                crate::CoverageStatus::Partial => "partial",
-                crate::CoverageStatus::Unavailable => "unavailable",
-            };
-            budget.line(
-                &mut out,
-                &format!(
-                    "  {} ({}): {} | {} to {} | {}/{} row groups, {}/{} rows | {}",
-                    bound.column,
-                    bound.kind,
-                    status,
-                    bound.min.as_deref().unwrap_or("n/a"),
-                    bound.max.as_deref().unwrap_or("n/a"),
-                    bound.covered_row_groups,
-                    bound.total_row_groups,
-                    bound.rows_covered,
-                    bound.total_rows,
-                    bound.reason
-                ),
-            );
+            budget.line(&mut out, &date_bounds_line(bound));
         }
     }
     for notice in &report.summary.notices {
@@ -334,6 +314,29 @@ fn row_count_label(report: &PreviewReport) -> String {
         );
     }
     report.summary.row_count.label.clone()
+}
+
+/// One date-bounds line. The column name is file-controlled, so it goes through
+/// the same display helper the Schema section uses before it reaches text output.
+fn date_bounds_line(bound: &crate::DateBounds) -> String {
+    let status = match bound.status {
+        crate::CoverageStatus::Complete => "complete",
+        crate::CoverageStatus::Partial => "partial",
+        crate::CoverageStatus::Unavailable => "unavailable",
+    };
+    format!(
+        "  {} ({}): {} | {} to {} | {}/{} row groups, {}/{} rows | {}",
+        escape_text(&bound.column, 128),
+        bound.kind,
+        status,
+        bound.min.as_deref().unwrap_or("n/a"),
+        bound.max.as_deref().unwrap_or("n/a"),
+        bound.covered_row_groups,
+        bound.total_row_groups,
+        bound.rows_covered,
+        bound.total_rows,
+        bound.reason
+    )
 }
 
 fn render_schema(out: &mut String, report: &PreviewReport, budget: &mut TextBudget) {
@@ -638,6 +641,30 @@ mod tests {
     fn truncation_helper() {
         assert_eq!(truncate("abcdef", 3), "abc...");
         assert_eq!(truncate("abc", 3), "abc");
+    }
+
+    #[test]
+    fn date_bounds_line_escapes_untrusted_column_names() {
+        let bound = crate::DateBounds {
+            column: "ts\u{202E}\u{001B}".to_string(),
+            kind: "timestamp".to_string(),
+            status: crate::CoverageStatus::Partial,
+            min: None,
+            max: None,
+            covered_row_groups: 1,
+            total_row_groups: 2,
+            rows_covered: 10,
+            total_rows: 20,
+            missing_stats_row_groups: 0,
+            untrusted_stats_row_groups: 1,
+            verified_by_scan: false,
+            reason: "coverage is partial".to_string(),
+        };
+        let line = date_bounds_line(&bound);
+        assert!(line.contains("ts\\u{202E}\\u{001B}"));
+        assert!(!line.contains('\u{202E}'));
+        assert!(!line.contains('\u{001B}'));
+        assert!(line.contains("coverage is partial"));
     }
 
     #[test]

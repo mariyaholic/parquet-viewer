@@ -112,7 +112,11 @@ jobs:
           if (-not $compiler) { throw "Windows SDK rc.exe was not found" }
           $compiler.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Build the Windows artefacts
-        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Version "${{ github.ref_name }}"
+        env:
+          # The tag name is data, not script text: pass it through the environment so
+          # PowerShell expands the variable instead of parsing the tag as source.
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Version "$env:RELEASE_VERSION"
       - name: Attach the release zip
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
