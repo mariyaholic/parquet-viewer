@@ -6,19 +6,37 @@ use std::io::Cursor;
 use std::process::{Command, Stdio};
 
 struct Fixture(std::path::PathBuf);
+
+// The system clock can return the same value to concurrent tests. Create
+// atomically and retry collisions without touching directories we do not own.
+fn create_fixture_dir(
+    root: &std::path::Path,
+    process_id: u32,
+    next: &std::sync::atomic::AtomicU64,
+) -> std::path::PathBuf {
+    use std::sync::atomic::Ordering;
+    loop {
+        let id = next.fetch_add(1, Ordering::Relaxed);
+        let path = root.join(format!("parquet-startup-test-{process_id}-{id}"));
+        match fs::create_dir(&path) {
+            Ok(()) => return path,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => panic!(
+                "could not create fixture directory {}: {error}",
+                path.display()
+            ),
+        }
+    }
+}
+
 impl Fixture {
     fn new() -> Self {
-        let name = format!(
-            "parquet-startup-test-{}-{}",
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        Self(create_fixture_dir(
+            &std::env::temp_dir(),
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        let path = std::env::temp_dir().join(name);
-        fs::create_dir(&path).unwrap();
-        Self(path)
+            &NEXT,
+        ))
     }
     fn worker(&self) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_parquet-preview-worker"));
@@ -35,6 +53,35 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
+}
+
+#[test]
+fn fixture_directory_retries_existing_name_without_removing_it() {
+    let root = Fixture::new();
+    let existing = root.0.join("parquet-startup-test-123-0");
+    fs::create_dir(&existing).unwrap();
+    fs::write(existing.join("owner"), b"keep").unwrap();
+    let next = std::sync::atomic::AtomicU64::new(0);
+    let created = create_fixture_dir(&root.0, 123, &next);
+    assert_eq!(created, root.0.join("parquet-startup-test-123-1"));
+    assert_eq!(fs::read(existing.join("owner")).unwrap(), b"keep");
+}
+
+#[test]
+fn concurrent_fixture_directories_are_distinct() {
+    let root = Fixture::new();
+    let next = std::sync::atomic::AtomicU64::new(0);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..32)
+            .map(|_| scope.spawn(|| create_fixture_dir(&root.0, 123, &next)))
+            .collect();
+        let paths: std::collections::HashSet<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        assert_eq!(paths.len(), 32);
+        assert!(paths.iter().all(|path| path.is_dir()));
+    });
 }
 
 #[test]
