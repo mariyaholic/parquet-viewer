@@ -7,3 +7,4 @@
 *.parquet binary
 
 *.ttf binary
+scripts/agent/* text eol=lf
