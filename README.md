@@ -10,9 +10,9 @@ Made by Maria
 
 ## Standalone desktop preview
 
-A native Windows desktop companion is now implemented with **Paper, Ink, PC-98,
+I also built a native Windows desktop companion, dressed in **Paper, Ink, PC-98,
 Doloris, Sumimi and Marigold** themes. Extract its portable developer ZIP and run
-`parquet-desktop.exe`; no COM registration is needed. This is a bounded, read-only
+`parquet-desktop.exe`; no COM registration is needed. It is a bounded, read-only
 paged browser with cross-page literal search, not an editable spreadsheet.
 [Large-file browsing and search limits](docs/LARGE-FILE-BROWSING.md).
 
@@ -22,14 +22,18 @@ paged browser with cross-page literal search, not an editable spreadsheet.
 
 
 
-Preview a local Parquet file in Windows Explorer with schema, row-group
-information and transparent scan coverage.
+Hello! This is my viewer for local Parquet files, right inside Windows Explorer.
+It shows the schema, row-group information and transparent scan coverage. I like
+that it always tells me exactly what was scanned and what was not, and I hope it
+helps you peek at your files as much as it helps me.
 
 This product is free and open source (Apache-2.0). See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 Status: v1 implementation. Releases are not code-signed yet.
 
 ## v1 scope
+
+Here is what I set out to build:
 
 - A per-user Windows Explorer preview handler for `.parquet` files.
 - Footer schema, row-group list and metadata-derived row count. Counts and
@@ -47,7 +51,8 @@ Status: v1 implementation. Releases are not code-signed yet.
   "free and open source (Apache-2.0)" notice.
 - A headless CLI for development, diagnostics and non-Windows verification.
 
-There is no SQL or full-file editing. The standalone desktop app above is separate
+I want the boundaries of this one to be plain, so nothing surprises you. There is
+no SQL or full-file editing. The standalone desktop app above is separate
 from the Explorer/CLI inspection pipeline. There is no data-network access, no uploads and no
 telemetry. MT5/MetaTrader support, if configured later, is strictly read-only:
 this project places no orders and makes no trading calls. It is not affiliated
@@ -65,9 +70,9 @@ with MetaQuotes; MetaTrader 5 and MT5 are trademarks of MetaQuotes Ltd.
 | `crates/cli` | Headless preview/diagnostic tool |
 | `crates/fixtures` | Deterministic Parquet fixture generator |
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the product architecture,
-[docs/PROTOCOL.md](docs/PROTOCOL.md) for the worker protocol and
-[docs/TESTING.md](docs/TESTING.md) for verification.
+If you want to look inside, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the product
+architecture, [docs/PROTOCOL.md](docs/PROTOCOL.md) for the worker protocol and
+[docs/TESTING.md](docs/TESTING.md) for how I verify things.
 
 ## Build and test
 
@@ -103,8 +108,9 @@ cargo run -p parquet-preview-cli -- tests/fixtures/trades.parquet --json
 cargo run -p parquet-preview-cli -- --about
 ```
 
-Market diagnostics are opt-in. Create a settings file and point the worker at it
-with the `PARQUET_PREVIEW_SETTINGS` environment variable:
+Market diagnostics are opt-in, and they stay that way. Create a settings file
+and point the worker at it with the `PARQUET_PREVIEW_SETTINGS` environment
+variable:
 
 ```json
 {
@@ -145,23 +151,25 @@ powershell -ExecutionPolicy Bypass -File uninstall.ps1
 `install.ps1` and `uninstall.ps1` are the conventional entry points; both are
 thin wrappers over `Register-ParquetPreview.ps1`, which holds the logic. The
 scripts warn before changing `.parquet` associations, back up the previous
-handler, and the uninstaller only restores it if the association is still ours.
-Registration is under `HKCU\Software\Classes`; no elevation is required. Restart
-Explorer after registering. Releases are not code-signed yet, so SmartScreen may
-warn. See [installer/README.md](installer/README.md).
+handler, and the uninstaller only restores the association if it still belongs
+to this viewer. Registration is under `HKCU\Software\Classes`; no elevation is
+required. Restart Explorer after registering. Releases are not code-signed yet,
+so SmartScreen may warn. See [installer/README.md](installer/README.md).
 
 The handler and worker must be version-matched and live in the same directory:
 `parquet_preview_windows.dll` and `parquet-preview-worker.exe`.
 
 ## Privacy and offline behavior
 
-Files and optional settings stay local. The application does not access the network or send telemetry.
+Files and optional settings stay local. The application does not access the network or send telemetry. I would not have it any other way.
 
 ## Licence
 
 Apache-2.0; see [LICENSE](LICENSE), [NOTICE](NOTICE) and [THIRD_PARTY.md](THIRD_PARTY.md).
 
 ## Known limitations
+
+I would rather list these than surprise you:
 
 - Encrypted Parquet files, corrupt files and unsupported logical types are
   reported rather than decoded. v1 handles the codecs enabled in the `parquet`
@@ -176,3 +184,5 @@ Apache-2.0; see [LICENSE](LICENSE), [NOTICE](NOTICE) and [THIRD_PARTY.md](THIRD_
   is not a security sandbox.
 
 Made by Maria. Free and open source (Apache-2.0).
+
+Thank you for reading. ♡
