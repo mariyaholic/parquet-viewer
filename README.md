@@ -2,186 +2,90 @@ Made by Maria
 
 # Parquet viewer and preview
 
-## Documentation
-
-- [Start here: desktop user guide](docs/USER-GUIDE.md) — opening, browsing, searching, copying and appearance.
-- [Documentation index](docs/README.md) — user help, developer references and Windows acceptance.
-- In the app, choose **Help** for topics or the bundled offline guide; **F1** opens Quick help.
-
-## Standalone desktop preview
-
-I also built a native Windows desktop companion, dressed in **Paper, Ink, PC-98,
-Doloris, Sumimi and Marigold** themes. Extract its portable developer ZIP and run
-`parquet-desktop.exe`; no COM registration is needed. It is a bounded, read-only
-paged browser with cross-page literal search, not an editable spreadsheet.
-[Large-file browsing and search limits](docs/LARGE-FILE-BROWSING.md).
-
-[Run/build instructions, limits and remaining native acceptance](docs/STANDALONE-USAGE.md).
-
-[Six-theme design system and future-feature component contracts](design/system/README.md).
-
-
-
 Hello! This is my viewer for local Parquet files, right inside Windows Explorer.
-It shows the schema, row-group information and transparent scan coverage. I like
-that it always tells me exactly what was scanned and what was not, and I hope it
-helps you peek at your files as much as it helps me.
+It shows the schema, the row-group information and what was scanned. I like
+that it always tells me exactly what was scanned and what was not, and I hope
+it helps you peek at your files as much as it helps me.
 
 This product is free and open source (Apache-2.0). See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 Status: v1 implementation. Releases are not code-signed yet.
 
-## v1 scope
+## Get it
 
-Here is what I set out to build:
-
-- A per-user Windows Explorer preview handler for `.parquet` files.
-- Footer schema, row-group list and metadata-derived row count. Counts and
-  statistics are explicitly labelled until a complete scan verifies them.
-- Date/timestamp bounds with `complete`, `partial` or `unavailable` coverage
-  and a reason for each column.
-- A virtualized, bounded sample with safe rendering of nested structs, lists,
-  maps, decimals, dates, timestamps and binary values.
-- An optional full decoded scan with row, decoded-byte, compressed-byte and
-  time budgets. A cancelled or skipped scan never claims exactness.
-- Optional market-data heuristics (constant spread, open equal to previous
-  close, return tails, price plausibility) with an explicit field mapping,
-  sample coverage and an optional local dated reference-price baseline.
-- An About dialog (F1 in the preview pane) with "Made by Maria" and the
-  "free and open source (Apache-2.0)" notice.
-- A headless CLI for development, diagnostics and non-Windows verification.
-
-I want the boundaries of this one to be plain, so nothing surprises you. There is
-no SQL or full-file editing. The standalone desktop app above is separate
-from the Explorer/CLI inspection pipeline. There is no data-network access, no uploads and no
-telemetry. MT5/MetaTrader support, if configured later, is strictly read-only:
-this project places no orders and makes no trading calls. It is not affiliated
-with MetaQuotes; MetaTrader 5 and MT5 are trademarks of MetaQuotes Ltd.
-
-## Workspace
-
-| Crate | Purpose |
-| --- | --- |
-| `crates/core` | Read-only Parquet inspection, summary, sample, scan, diagnostics, rendering |
-| `crates/protocol` | Versioned, size-capped worker protocol |
-| `crates/worker` | Isolated worker process and private stream spool |
-| `crates/client` | Cross-platform worker process client |
-| `crates/windows` | COM preview handler, registry registration, Win32 glue |
-| `crates/cli` | Headless preview/diagnostic tool |
-| `crates/fixtures` | Deterministic Parquet fixture generator |
-
-If you want to look inside, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the product
-architecture, [docs/PROTOCOL.md](docs/PROTOCOL.md) for the worker protocol and
-[docs/TESTING.md](docs/TESTING.md) for how I verify things.
-
-## Build and test
-
-Rust 1.85 or later and a normal Cargo toolchain:
-
-```text
-cargo build --workspace
-cargo test --workspace
-```
-
-No Windows target is required for those commands. The Win32/COM module is
-behind `#[cfg(windows)]`; on Linux it can be type-checked but not tested:
-
-```text
-cargo check -p parquet-preview-windows --features win-check
-```
-
-For native Windows releases run `scripts/build-windows.ps1`; on Linux run
-`scripts/build-windows.sh` with the Windows GNU target and MinGW installed
-(the Linux script also needs `zip`). Both produce `dist/` with the binaries,
-licence documents, the registration scripts and `SHA256SUMS`, plus a single
-release archive `dist/parquet-preview-<version>-x64.zip`; the scripts use the
-last commit timestamp and remap source paths, but reproducibility also depends
-on identical toolchains and dependency inputs. See [docs/TESTING.md](docs/TESTING.md)
-for everything that still requires real Windows.
-
-## Headless use
-
-```text
-cargo run -p parquet-preview-cli -- tests/fixtures/trades.parquet --rows 20
-cargo run -p parquet-preview-cli -- tests/fixtures/trades.parquet --scan
-cargo run -p parquet-preview-cli -- tests/fixtures/trades.parquet --json
-cargo run -p parquet-preview-cli -- --about
-```
-
-Market diagnostics are opt-in, and they stay that way. Create a settings file
-and point the worker at it with the `PARQUET_PREVIEW_SETTINGS` environment
-variable:
-
-```json
-{
-  "market_profile": {
-    "time_field": "time",
-    "open_field": "open",
-    "high_field": "high",
-    "low_field": "low",
-    "close_field": "close",
-    "spread_field": "spread",
-    "instrument": "EURUSD"
-  },
-  "baseline": {
-    "path": "C:\\Users\\me\\baseline.csv",
-    "instrument": "EURUSD",
-    "licence": "internal research licence 2026"
-  }
-}
-```
-
-The baseline is local CSV with `date,price` plus an optional `instrument`
-column, and it must name the licence/terms under which it is used. Without a
-dated, instrument-specific, explicitly licensed baseline, the price comparison
-is reported as unavailable. Heuristics are warnings, not proof of fraud,
-authenticity or integrity, and are not financial advice.
-
-## Windows registration
-
-Releases are published as `parquet-preview-<version>-x64.zip`, containing the
-binaries, the licence documents and the registration scripts. Extract the zip and
-run the per-user script from the extracted folder:
+Releases are published as `parquet-preview-<version>-x64.zip`. Extract the zip
+and run the per-user install script from the extracted folder:
 
 ```text
 powershell -ExecutionPolicy Bypass -File install.ps1
-powershell -ExecutionPolicy Bypass -File uninstall.ps1
 ```
 
-`install.ps1` and `uninstall.ps1` are the conventional entry points; both are
-thin wrappers over `Register-ParquetPreview.ps1`, which holds the logic. The
-scripts warn before changing `.parquet` associations, back up the previous
-handler, and the uninstaller only restores the association if it still belongs
-to this viewer. Registration is under `HKCU\Software\Classes`; no elevation is
-required. Restart Explorer after registering. Releases are not code-signed yet,
-so SmartScreen may warn. See [installer/README.md](installer/README.md).
+Registration is per-user, so it asks for no administrator rights. Restart
+Explorer afterwards and your `.parquet` files should get a preview pane. To
+remove it again, run `uninstall.ps1` the same way.
 
-The handler and worker must be version-matched and live in the same directory:
-`parquet_preview_windows.dll` and `parquet-preview-worker.exe`.
+## What it does for you
+
+- A footer with the schema, the row groups and a row count. The counts stay
+  labelled until a full scan verifies them.
+- Date and timestamp bounds that say `complete`, `partial` or `unavailable`,
+  with a reason for each column.
+- A bounded sample that renders nested structs, lists, maps, decimals, dates,
+  timestamps and binary values safely.
+- An optional full scan with row, size and time budgets. A cancelled or
+  skipped scan never claims exactness.
+- An About dialog (F1 in the preview pane) with "Made by Maria" and the
+  "free and open source (Apache-2.0)" notice.
+
+I want the boundaries of this one to be plain, so nothing surprises you. There
+is no SQL or full-file editing, and there is no data-network access, no
+uploads and no telemetry. MT5/MetaTrader support, if configured later, is
+strictly read-only: this project places no orders and makes no trading calls.
+It is not affiliated with MetaQuotes; MetaTrader 5 and MT5 are trademarks of
+MetaQuotes Ltd.
+
+## Documentation
+
+- [Start here: desktop user guide](docs/USER-GUIDE.md) — opening, browsing,
+  searching, copying and appearance.
+- In the app, choose **Help** for topics or the bundled offline guide; **F1**
+  opens Quick help.
+
+## Standalone desktop preview
+
+I also built a native Windows desktop companion, dressed in **Paper, Ink,
+PC-98, Doloris, Sumimi and Marigold** themes. Extract its portable developer
+ZIP and run `parquet-desktop.exe`; no COM registration is needed. It is a
+bounded, read-only paged browser with cross-page literal search, not an
+editable spreadsheet.
+[Large-file browsing and search limits](docs/LARGE-FILE-BROWSING.md).
 
 ## Privacy and offline behavior
 
-Files and optional settings stay local. The application does not access the network or send telemetry. I would not have it any other way.
+Files and optional settings stay local. The application does not access the
+network or send telemetry. I would not have it any other way.
 
 ## Licence
 
 Apache-2.0; see [LICENSE](LICENSE), [NOTICE](NOTICE) and [THIRD_PARTY.md](THIRD_PARTY.md).
 
-## Known limitations
+## Everything else
 
-I would rather list these than surprise you:
+The fine detail lives in [Parquet Viewer's guide](https://mariyaholic.github.io/docs/parquet-viewer/)
+on my site:
 
-- Encrypted Parquet files, corrupt files and unsupported logical types are
-  reported rather than decoded. v1 handles the codecs enabled in the `parquet`
-  crate: Snappy, Gzip, Zstd, Brotli and LZ4_RAW.
-- Nested date/timestamp leaves are excluded from the top-level date-bounds
-  report and the limitation is stated.
-- Footer counts and statistics come from the file. They are not an integrity
-  check; a full scan is required to claim exact counts.
-- The preview handler targets 64-bit Windows. Store/MSIX packaging, signing,
-  ARM64 and page-index-based virtual scrolling are not part of v1.
-- The worker enforces budgets and is assigned to a job object, but a job object
-  is not a security sandbox.
+- [What the viewer shows](https://mariyaholic.github.io/docs/parquet-viewer/#scope) —
+  coverage labels, date bounds, the optional scan and the About dialog
+- [The workspace crates](https://mariyaholic.github.io/docs/parquet-viewer/#workspace)
+  and the architecture documents
+- [Build and test from source](https://mariyaholic.github.io/docs/parquet-viewer/#build),
+  including the Windows release scripts
+- [The headless command-line tool](https://mariyaholic.github.io/docs/parquet-viewer/#headless)
+- [Market diagnostics](https://mariyaholic.github.io/docs/parquet-viewer/#market)
+  and the settings file
+- [Registering the Explorer handler](https://mariyaholic.github.io/docs/parquet-viewer/#register) —
+  scripts, backups and version matching
+- [Known limitations](https://mariyaholic.github.io/docs/parquet-viewer/#limits)
 
 Made by Maria. Free and open source (Apache-2.0).
 
